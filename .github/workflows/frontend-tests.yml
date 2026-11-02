@@ -1,0 +1,84 @@
+name: Frontend
+
+on:
+    pull_request:
+        paths-ignore:
+            - "**.md"
+            - "**.py"
+            - "**.txt"
+            - "**.csv"
+            - "**.po"
+            - "**.pot"
+            - ".github/workflows/server-tests.yml"
+            - ".github/workflows/builds.yml"
+    schedule:
+        # Run every day at midnight UTC / 5:30 IST
+        - cron: "0 0 * * *"
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    frontend:
+        name: Lint, Build & Test
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        steps:
+            - uses: actions/checkout@v4
+
+            # frontend/package.json links `@framework/ui` to a sibling frappe checkout
+            # (link:../../frappe/ui); without it, anything importing from @framework/ui
+            # fails to resolve. actions/checkout cannot place a repo outside the
+            # workspace, and only the `ui` package is needed.
+            - name: Clone frappe for @framework/ui
+              run: |
+                  git clone --depth 1 --branch develop --filter=blob:none --sparse \
+                      https://github.com/frappe/frappe "$GITHUB_WORKSPACE/../frappe"
+                  git -C "$GITHUB_WORKSPACE/../frappe" sparse-checkout set ui
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+
+            # The lockfile rarely changes, so restoring node_modules beats a fresh yarn install.
+            - name: Cache node_modules
+              uses: actions/cache@v4
+              with:
+                  path: frontend/node_modules
+                  key: node-modules-${{ runner.os }}-node24-${{ hashFiles('frontend/yarn.lock') }}
+                  restore-keys: |
+                      node-modules-${{ runner.os }}-node24-
+
+            # @whatsapp/ui is linked from the sibling app dir that bench creates;
+            # this job only checks out crm, so clone it there.
+            - name: Clone WhatsApp app
+              run: git clone --depth 1 https://github.com/frappe/whatsapp.git ../whatsapp
+
+            - name: Install dependencies
+              run: cd frontend && yarn install --frozen-lockfile
+
+            - name: ESLint
+              run: cd frontend && npx eslint src --ext .js,.ts,.vue
+
+            - name: Oxlint
+              if: success() || failure()
+              run: cd frontend && npx oxlint src
+
+            - name: Build frontend
+              if: success() || failure()
+              run: cd frontend && yarn build
+
+            - name: Run frontend tests
+              if: success() || failure()
+              run: cd frontend && yarn test:coverage
+
+            - name: Publish coverage to Codecov
+              if: github.base_ref == 'develop' || github.ref_name == 'develop'
+              uses: ./.github/actions/publish-codecov
+              with:
+                  name: Frontend
+                  fail-ci-if-error: "false"
+                  token: ${{ secrets.CODECOV_TOKEN }}

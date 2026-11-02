@@ -1,0 +1,1875 @@
+<template>
+  <div
+    v-if="isMobileView"
+    class="flex flex-col justify-between gap-2 sm:px-5 px-3 py-4"
+  >
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-2">
+        <FadedScrollableDiv
+          class="flex flex-1 items-center overflow-x-auto -ml-1 h-9"
+          orientation="horizontal"
+        >
+          <div
+            v-for="filter in quickFilterList"
+            :key="filter.fieldname"
+            class="m-1 min-w-36"
+          >
+            <QuickFilterField
+              :filter="filter"
+              @applyQuickFilter="(f, v) => applyQuickFilter(f, v)"
+            />
+          </div>
+        </FadedScrollableDiv>
+        <div class="-ml-2 h-[70%] border-l" />
+        <div class="flex shrink-0 gap-2">
+          <Button
+            v-if="filterChip"
+            :label="filterChip.label"
+            iconRight="lucide-x"
+            :tooltip="__('Show all records')"
+            @click="filterChip.clear"
+          />
+          <Button
+            :tooltip="__('Refresh')"
+            icon="lucide-refresh-ccw"
+            :loading="isLoading"
+            @click="reload()"
+          />
+          <GroupBy
+            v-if="route.params.viewType === 'group_by'"
+            v-model="list"
+            :doctype="doctype"
+            :hideLabel="isMobileView"
+            @update="updateGroupBy"
+          />
+          <GroupSummaryButton
+            v-if="canGroup"
+            :modelValue="groupSummary"
+            :doctype="doctype"
+            :exclude="options.groupByExclude"
+            hideLabel
+            @update:modelValue="updateGroupSummary"
+          />
+          <Filter
+            v-model="list"
+            :doctype="doctype"
+            :default_filters="defaultFilters"
+            @update="updateFilter"
+          />
+          <SortBy
+            v-if="route.params.viewType !== 'kanban' && !groupSummary"
+            v-model="list"
+            :doctype="doctype"
+            :hideLabel="isMobileView"
+            @update="updateSort"
+          />
+          <KanbanSettings
+            v-if="route.params.viewType === 'kanban'"
+            v-model="list"
+            :doctype="doctype"
+            @update="updateKanbanSettings"
+          />
+          <ColumnSettings
+            v-else-if="!options.hideColumnsButton"
+            v-model="list"
+            :doctype="doctype"
+            :hideLabel="isMobileView"
+            @update="(isDefault) => updateColumns(isDefault)"
+          />
+        </div>
+      </div>
+      <div
+        v-if="viewUpdated && route.query.view && (!view.public || isManager())"
+        class="flex flex-row-reverse items-center gap-2 border-r pr-2"
+      >
+        <Button :label="__('Cancel')" @click="cancelChanges" />
+        <Button :label="__('Save Changes')" @click="saveView" />
+      </div>
+    </div>
+  </div>
+  <div
+    v-else-if="customizeQuickFilter"
+    class="flex items-center justify-between gap-2 p-5"
+  >
+    <div class="flex flex-1 items-center overflow-hidden pl-1 gap-2">
+      <FadedScrollableDiv
+        class="flex overflow-x-auto -ml-1"
+        orientation="horizontal"
+      >
+        <Draggable
+          class="flex w-full gap-2 items-center"
+          :list="newQuickFilters"
+          group="filters"
+          item-key="fieldname"
+        >
+          <template #item="{ element: filter }">
+            <div class="group whitespace-nowrap cursor-grab">
+              <Button class="cursor-grab">
+                <template #default>
+                  <Tooltip :text="filter.fieldname">
+                    <span>{{ filter.label }}</span>
+                  </Tooltip>
+                </template>
+                <template #suffix>
+                  <span
+                    class="lucide-x h-3.5 cursor-pointer group-hover:flex hidden"
+                    aria-hidden="true"
+                    @click.stop="removeQuickFilter(filter)"
+                  />
+                </template>
+              </Button>
+            </div>
+          </template>
+        </Draggable>
+      </FadedScrollableDiv>
+      <div>
+        <Combobox
+          :model-value="null"
+          :options="quickFilterOptions"
+          @update:selected-option="(e) => addQuickFilter(e)"
+        >
+          <template #trigger="{ open, setOpen }">
+            <Button
+              class="whitespace-nowrap mr-2"
+              variant="ghost"
+              :label="__('Add Filter')"
+              iconLeft="lucide-plus"
+              @click="setOpen(!open)"
+            />
+          </template>
+          <template #item-label="{ item }">
+            <Tooltip :text="item.value" :hover-delay="1000">
+              <div class="flex-1 truncate text-ink-gray-7">
+                {{ item.label }}
+              </div>
+            </Tooltip>
+          </template>
+        </Combobox>
+      </div>
+    </div>
+    <div class="-ml-2 h-[70%] border-l" />
+    <div class="flex gap-1">
+      <Button
+        :label="__('Save')"
+        :loading="updateQuickFilters.loading"
+        @click="saveQuickFilters"
+      />
+      <Button icon="lucide-x" @click="customizeQuickFilter = false" />
+    </div>
+  </div>
+  <div v-else class="flex items-center justify-between gap-2 px-5 py-4">
+    <FadedScrollableDiv
+      class="flex flex-1 items-center overflow-x-auto -ml-1 h-9"
+      orientation="horizontal"
+    >
+      <div
+        v-for="filter in quickFilterList"
+        :key="filter.fieldname"
+        class="m-1 min-w-36"
+      >
+        <QuickFilterField
+          :filter="filter"
+          @applyQuickFilter="(f, v) => applyQuickFilter(f, v)"
+        />
+      </div>
+    </FadedScrollableDiv>
+    <div class="-ml-2 h-[70%] border-l" />
+    <div class="flex items-center gap-2">
+      <div
+        v-if="viewUpdated && route.query.view && (!view.public || isManager())"
+        class="flex items-center gap-2 border-r pr-2"
+      >
+        <Button :label="__('Cancel')" @click="cancelChanges" />
+        <Button :label="__('Save Changes')" @click="saveView" />
+      </div>
+      <div class="flex items-center gap-2">
+        <Button
+          v-if="filterChip"
+          :label="filterChip.label"
+          iconRight="lucide-x"
+          :tooltip="__('Show all records')"
+          @click="filterChip.clear"
+        />
+        <Button
+          :tooltip="__('Refresh')"
+          icon="lucide-refresh-ccw"
+          :loading="isLoading"
+          @click="reload()"
+        />
+        <GroupBy
+          v-if="route.params.viewType === 'group_by'"
+          v-model="list"
+          :doctype="doctype"
+          @update="updateGroupBy"
+        />
+        <GroupSummaryButton
+          v-if="canGroup"
+          :modelValue="groupSummary"
+          :doctype="doctype"
+          :exclude="options.groupByExclude"
+          @update:modelValue="updateGroupSummary"
+        />
+        <Filter
+          v-model="list"
+          :doctype="doctype"
+          :default_filters="defaultFilters"
+          @update="updateFilter"
+        />
+        <!-- a grouped list sorts from its column headers instead -->
+        <SortBy
+          v-if="route.params.viewType !== 'kanban' && !groupSummary"
+          v-model="list"
+          :doctype="doctype"
+          @update="updateSort"
+        />
+        <KanbanSettings
+          v-if="route.params.viewType === 'kanban'"
+          v-model="list"
+          :doctype="doctype"
+          @update="updateKanbanSettings"
+        />
+        <ColumnSettings
+          v-else-if="!options.hideColumnsButton"
+          v-model="list"
+          :doctype="doctype"
+          @update="(isDefault) => updateColumns(isDefault)"
+        />
+        <Dropdown
+          v-if="route.params.viewType !== 'kanban' || isManager()"
+          align="end"
+          :options="[
+            {
+              group: __('Options'),
+              hideLabel: true,
+              options: [
+                {
+                  label: __('Import'),
+                  icon: () => h(ImportIcon, { class: 'h-4 w-4' }),
+                  onClick: () =>
+                    router.push({
+                      name: 'NewDataImport',
+                      params: { doctype: doctype },
+                    }),
+                  condition: () =>
+                    !options.hideColumnsButton &&
+                    doctype !== 'Data Import' &&
+                    route.params.viewType !== 'kanban',
+                },
+                {
+                  label: __('Export'),
+                  icon: () => h(ExportIcon, { class: 'h-4 w-4' }),
+                  onClick: () => (showExportDialog = true),
+                  condition: () =>
+                    !options.hideColumnsButton &&
+                    route.params.viewType !== 'kanban',
+                },
+                {
+                  label: __('Customize Quick Filters'),
+                  icon: () => h(QuickFilterIcon, { class: 'h-4 w-4' }),
+                  onClick: () => showCustomizeQuickFilter(),
+                  condition: () => isManager(),
+                },
+              ],
+            },
+          ]"
+        >
+          <template #default>
+            <Button
+              :tooltip="__('More Options')"
+              icon="lucide-more-horizontal"
+            />
+          </template>
+        </Dropdown>
+      </div>
+    </div>
+  </div>
+  <ViewModal
+    v-model="showViewModal"
+    v-model:view="viewModalObj"
+    :doctype="doctype"
+    :options="{
+      afterCreate: async (v) => {
+        await reloadView()
+        viewUpdated = false
+        router.push({
+          name: route.name,
+          params: { viewType: v.type || 'list' },
+          query: { view: v.name },
+        })
+      },
+      afterUpdate: () => {
+        viewUpdated = false
+        reloadView()
+        list.reload()
+      },
+    }"
+  />
+  <Dialog
+    v-model:open="showExportDialog"
+    :title="__('Export')"
+    :actions="[
+      {
+        label: __('Download'),
+        variant: 'solid',
+        onClick: () => exportRows(),
+      },
+    ]"
+  >
+    <template #default>
+      <FormControl
+        v-model="export_type"
+        variant="outline"
+        :label="__('Export Type')"
+        type="select"
+        :options="[
+          {
+            label: __('Excel'),
+            value: 'Excel',
+          },
+          {
+            label: __('CSV'),
+            value: 'CSV',
+          },
+        ]"
+        :placeholder="__('Excel')"
+      />
+      <div v-if="!groupSummary" class="mt-3">
+        <FormControl
+          v-model="export_all"
+          type="checkbox"
+          :label="__('Export all {0} record(s)', [list.data.total_count])"
+        />
+      </div>
+    </template>
+  </Dialog>
+  <LostReasonModal
+    v-if="showKanbanLostReasonModal"
+    v-model="showKanbanLostReasonModal"
+    :doctype="props.doctype"
+    @save="confirmKanbanLostReason"
+    @cancel="cancelKanbanLostReason"
+  />
+</template>
+<script setup>
+import Icon from '@/components/Icon.vue'
+import ListIcon from '@/components/Icons/ListIcon.vue'
+import KanbanIcon from '@/components/Icons/KanbanIcon.vue'
+import GroupByIcon from '@/components/Icons/GroupByIcon.vue'
+import QuickFilterField from '@/components/QuickFilterField.vue'
+import {
+  GroupBy as GroupSummaryButton,
+  parseGroupBy,
+  serializeGroupBy,
+} from '@framework/ui/components/GroupBy'
+import EditIcon from '@/components/Icons/EditIcon.vue'
+import DuplicateIcon from '@/components/Icons/DuplicateIcon.vue'
+import CheckIcon from '@/components/Icons/CheckIcon.vue'
+import PinIcon from '@/components/Icons/PinIcon.vue'
+import UnpinIcon from '@/components/Icons/UnpinIcon.vue'
+import ExportIcon from '@/components/Icons/ExportIcon.vue'
+import QuickFilterIcon from '@/components/Icons/QuickFilterIcon.vue'
+import ViewModal from '@/components/Modals/ViewModal.vue'
+import SortBy from '@/components/SortBy.vue'
+import Filter from '@/components/Filter.vue'
+import GroupBy from '@/components/GroupBy.vue'
+import FadedScrollableDiv from '@/components/FadedScrollableDiv.vue'
+import ColumnSettings from '@/components/ColumnSettings.vue'
+import KanbanSettings from '@/components/Kanban/KanbanSettings.vue'
+import LostReasonModal from '@/components/Modals/LostReasonModal.vue'
+import { getSettings } from '@/stores/settings'
+import { globalStore } from '@/stores/global'
+import { viewsStore } from '@/stores/views'
+import { usersStore } from '@/stores/users'
+import { organizationsStore } from '@/stores/organizations'
+import { statusesStore } from '@/stores/statuses'
+import { getMeta } from '@/stores/meta'
+import { isEmoji } from '@/utils'
+import {
+  Combobox,
+  Tooltip,
+  createResource,
+  Dropdown,
+  toast,
+  call,
+  usePageMeta,
+} from 'frappe-ui'
+import {
+  computed,
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  h,
+  markRaw,
+} from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { isMobileView } from '@/composables/settings'
+import {
+  commandPaletteOpen,
+  useCommandPaletteContext,
+} from '@/composables/useCommandPalette'
+import {
+  FILTERABLE_FIELDTYPES,
+  commandFilterOptions,
+} from '@/utils/commandPalette'
+import Draggable from 'vuedraggable'
+import _ from 'lodash'
+import { importListFilters, withoutImportQuery } from '@/utils/dataImport'
+import ImportIcon from '~icons/lucide/import'
+
+const props = defineProps({
+  doctype: { type: String, required: true },
+  filters: { type: Object, default: () => ({}) },
+  // names the page's own `filters` in a chip that emits clearFilters
+  filtersLabel: { type: String, default: '' },
+  options: {
+    type: Object,
+    default: () => ({
+      hideColumnsButton: false,
+      defaultViewName: '',
+      allowedViews: ['list'],
+    }),
+  },
+})
+
+const emit = defineEmits(['clearFilters'])
+
+const { brand } = getSettings()
+const { $dialog, $socket } = globalStore()
+const { reload: reloadView, getDefaultView, getView } = viewsStore()
+const { isManager, getUser } = usersStore()
+const { organizations } = organizationsStore()
+const { getLeadStatus, getDealStatus } = statusesStore()
+
+const showKanbanLostReasonModal = ref(false)
+const pendingKanbanMove = ref(null)
+
+const list = defineModel({ type: Object, default: () => ({}) })
+const loadMore = defineModel('loadMore', { type: Boolean })
+const resizeColumn = defineModel('resizeColumn', { type: Boolean })
+const updatedPageCount = defineModel('updatedPageCount', { type: Boolean })
+
+const route = useRoute()
+const router = useRouter()
+
+const defaultFilters = computed(() => ({
+  ...props.filters,
+  ...importListFilters(route.query),
+}))
+
+const filterChip = computed(() => {
+  if (props.filtersLabel) {
+    return { label: props.filtersLabel, clear: () => emit('clearFilters') }
+  }
+  if (route.query.import) {
+    return {
+      label: __('From import'),
+      clear: () => router.replace({ query: withoutImportQuery(route.query) }),
+    }
+  }
+  return null
+})
+
+const defaultParams = ref('')
+
+const viewUpdated = ref(false)
+const showViewModal = ref(false)
+
+function getViewType() {
+  let viewType = route.params.viewType || 'list'
+  let types = {
+    list: {
+      name: 'list',
+      label: __('List'),
+      icon: markRaw(ListIcon),
+    },
+    group_by: {
+      name: 'group_by',
+      label: __('Group By'),
+      icon: markRaw(GroupByIcon),
+    },
+    kanban: {
+      name: 'kanban',
+      label: __('Kanban'),
+      icon: markRaw(KanbanIcon),
+    },
+  }
+
+  return types[viewType]
+}
+
+const currentView = computed(() => {
+  let _view = getView(route.query.view, route.params.viewType, props.doctype)
+  return {
+    name: _view?.name || getViewType().name,
+    label:
+      _view?.label || props.options?.defaultViewName || getViewType().label,
+    icon: _view?.icon || getViewType().icon,
+    is_standard: !_view || _view.is_standard,
+  }
+})
+
+usePageMeta(() => {
+  let label = currentView.value.label
+  if (currentView.value.is_standard) {
+    let routeName = route.name
+    label = `${routeName} - ${label}`
+  }
+  return {
+    title: label,
+    emoji: isEmoji(currentView.value.icon) ? currentView.value.icon : '',
+    icon: brand.favicon,
+  }
+})
+
+// a saved view carries its own type; otherwise the route's
+function viewTypeOf(_view) {
+  return _view?.type || route.params.viewType || 'list'
+}
+
+// only list views of a host that renders the grouped table can be grouped
+const canGroup = computed(
+  () =>
+    Boolean(props.options?.groupSummary) &&
+    viewTypeOf(
+      getView(route.query.view, route.params.viewType, props.doctype),
+    ) === 'list',
+)
+
+const view = ref({
+  name: '',
+  label: '',
+  type: 'list',
+  icon: '',
+  filters: {},
+  order_by: 'modified desc',
+  column_field: 'status',
+  title_field: '',
+  kanban_columns: '',
+  kanban_fields: '',
+  columns: '',
+  rows: '',
+  load_default_columns: false,
+  pinned: false,
+  public: false,
+})
+
+// mirrors the get_data default; undefined would make "Load More" send null
+const DEFAULT_PAGE_LENGTH = 20
+
+const pageLength = computed(
+  () => list.value?.data?.page_length ?? DEFAULT_PAGE_LENGTH,
+)
+const pageLengthCount = computed(
+  () => list.value?.data?.page_length_count ?? DEFAULT_PAGE_LENGTH,
+)
+
+watch(loadMore, (value) => {
+  if (!value) return
+  updatePageLength(value, true)
+})
+
+watch(resizeColumn, (value) => {
+  if (!value) return
+  updateColumns()
+})
+
+watch(updatedPageCount, (value) => {
+  if (!value) return
+  updatePageLength(value)
+})
+
+function getParams() {
+  let _view = getView(route.query.view, route.params.viewType, props.doctype)
+  const view_name = _view?.name || ''
+  const view_type = viewTypeOf(_view)
+  const filters = (_view?.filters && JSON.parse(_view.filters)) || {}
+  const order_by = _view?.order_by || 'modified desc'
+  const group_by_field = _view?.group_by_field || 'owner'
+  const columns = _view?.columns || ''
+  const rows = _view?.rows || ''
+  const column_field = _view?.column_field || 'status'
+  const title_field = _view?.title_field || ''
+  const kanban_columns = _view?.kanban_columns || ''
+  const kanban_fields = _view?.kanban_fields || ''
+
+  view.value = {
+    name: view_name,
+    label: _view?.label || getViewType().label,
+    type: view_type,
+    icon: _view?.icon || '',
+    filters: filters,
+    order_by: order_by,
+    group_by_field: group_by_field,
+    column_field: column_field,
+    title_field: title_field,
+    kanban_columns: kanban_columns,
+    kanban_fields: kanban_fields,
+    columns: columns,
+    rows: rows,
+    route_name: _view?.route_name || route.name,
+    load_default_columns: _view?.row || true,
+    pinned: _view?.pinned || false,
+    public: _view?.public || false,
+  }
+
+  return {
+    doctype: props.doctype,
+    filters: filters,
+    order_by: order_by,
+    default_filters: defaultFilters.value,
+    view: {
+      custom_view_name: view_name,
+      view_type: view_type,
+      group_by_field: group_by_field,
+      group_by_settings: parseGroupBy(_view?.group_by_settings),
+    },
+    column_field: column_field,
+    title_field: title_field,
+    kanban_columns: kanban_columns,
+    kanban_fields: kanban_fields,
+    columns: columns,
+    rows: rows,
+    page_length: pageLength.value,
+    page_length_count: pageLengthCount.value,
+  }
+}
+
+let listResource
+
+const pageFiltersKey = Object.keys(defaultFilters.value).length
+  ? [JSON.stringify(defaultFilters.value)]
+  : []
+
+listResource = createResource({
+  url: 'crm.api.doc.get_data',
+  params: getParams(),
+  cache: [
+    props.doctype,
+    route.query.view,
+    route.params.viewType,
+    ...pageFiltersKey,
+  ],
+  auto: true,
+  onSuccess(data) {
+    let cv = getView(route.query.view, route.params.viewType, props.doctype)
+    let params = listResource.params || getParams()
+    listResource.params = params
+    defaultParams.value = {
+      doctype: props.doctype,
+      filters: params.filters,
+      order_by: params.order_by,
+      default_filters: defaultFilters.value,
+      view: {
+        custom_view_name: cv?.name || '',
+        view_type: viewTypeOf(cv),
+        group_by_field: params?.view?.group_by_field || 'owner',
+        group_by_settings: params?.view?.group_by_settings || null,
+      },
+      column_field: data.column_field,
+      title_field: data.title_field,
+      kanban_columns: data.kanban_columns,
+      kanban_fields: data.kanban_fields,
+      columns: data.columns,
+      rows: data.rows,
+      page_length: params.page_length,
+      page_length_count: params.page_length_count,
+    }
+  },
+})
+
+list.value = listResource
+
+// one summary row per group, like desk's report view; stored on the list params
+const groupSummary = computed(() =>
+  canGroup.value ? listResource.params?.view?.group_by_settings || null : null,
+)
+
+// Keep an unsaved view change on cached re-entry; don't reset to the saved view (frappe/crm#2833).
+// kanban_columns is excluded: pagination (load more) mutates it without being a user edit.
+const dirtySignature = (p) =>
+  JSON.stringify([
+    p.filters || {},
+    p.order_by,
+    p.view?.group_by_field,
+    parseGroupBy(p.view?.group_by_settings),
+    p.column_field,
+    p.title_field,
+    p.kanban_fields,
+  ])
+const initialParams = getParams()
+if (!listResource.params) {
+  listResource.params = initialParams
+} else if (
+  dirtySignature(listResource.params) !== dirtySignature(initialParams)
+) {
+  viewUpdated.value = true
+}
+
+// Refresh the list when a Domain Enrichment enrichment finishes for this
+// doctype, so newly-filled fields (logo, etc.) show without a manual reload.
+function onEnrichmentDone(data) {
+  if (data?.status !== 'completed') return
+  if (data.reference_doctype === props.doctype) reload()
+  // The Deals list logo comes from the cached organizations store
+  // (getOrganization → organization_logo), not the deal row. Refresh that store so a
+  // newly enriched org's logo appears without a hard refresh; `rows` is a
+  // computed reading the store, so it re-renders reactively.
+  if (props.doctype === 'CRM Deal') {
+    organizations.reload()
+  }
+}
+
+onMounted(() => {
+  $socket?.on('domain_enrichment_progress', onEnrichmentDone)
+})
+
+onBeforeUnmount(() => {
+  $socket?.off('domain_enrichment_progress', onEnrichmentDone)
+})
+
+const isLoading = computed(() => list.value?.loading)
+
+function getListParams() {
+  if (!listResource.params) listResource.params = getParams()
+  return listResource.params
+}
+
+function reload() {
+  if (isLoading.value) return
+  listResource.params = getParams()
+  listResource.reload()
+}
+
+const showExportDialog = ref(false)
+const export_type = ref('Excel')
+const export_all = ref(false)
+const selectedRows = ref([])
+
+function updateSelections(selections) {
+  selectedRows.value = Array.from(selections)
+}
+
+function resolveCurrentUser(filters) {
+  const userId = getUser()?.name
+  // Only resolve @me placeholders when we know the current user; otherwise
+  // leave filters untouched rather than emitting undefined / "%undefined%".
+  if (!userId) return filters
+  Object.keys(filters).forEach((key) => {
+    const value = filters[key]
+
+    // Handle direct filter format: { owner: "@me" }
+    if (value === '@me') {
+      filters[key] = userId
+      return
+    }
+    if (!Array.isArray(value)) return
+    // Handle all operator-based filter format: { owner: ["=", "@me"], _assign: ["LIKE", "%@me%"] }
+    filters[key] = value.map((entry) =>
+      entry === '@me' ? userId : entry === '%@me%' ? `%${userId}%` : entry,
+    )
+  })
+  return filters
+}
+
+const currentFilters = computed(() =>
+  resolveCurrentUser({
+    ...(list.value.params?.filters || {}),
+    ...defaultFilters.value,
+  }),
+)
+
+async function exportRows() {
+  let filters = JSON.stringify(currentFilters.value)
+
+  // a grouped list exports what it shows: one row per group, every group
+  window.location.href = groupSummary.value
+    ? groupedExportUrl(filters)
+    : listExportUrl(filters)
+
+  showExportDialog.value = false
+  export_all.value = false
+  export_type.value = 'Excel'
+}
+
+function groupedExportUrl(filters) {
+  const grouped = serializeGroupBy(groupSummary.value)
+  return (
+    `/api/method/frappe.desk.reportview.export_query?file_format_type=${export_type.value}` +
+    `&title=${encodeURIComponent(props.doctype)}&doctype=${encodeURIComponent(props.doctype)}` +
+    `&fields=${encodeURIComponent(JSON.stringify(grouped.fields))}` +
+    `&filters=${encodeURIComponent(filters)}` +
+    `&group_by=${encodeURIComponent(grouped.group_by)}` +
+    `&order_by=${encodeURIComponent(grouped.order_by || '')}&view=Report`
+  )
+}
+
+function listExportUrl(filters) {
+  let fields = JSON.stringify(list.value.data.columns.map((f) => f.key))
+
+  let order_by = list.value.params.order_by
+  let page_length = list.value.params.page_length
+  if (export_all.value) {
+    page_length = list.value.data.total_count
+  }
+
+  let url = `/api/method/frappe.desk.reportview.export_query?file_format_type=${export_type.value}&title=${props.doctype}&doctype=${props.doctype}&fields=${fields}&filters=${encodeURIComponent(filters)}&order_by=${order_by}&page_length=${page_length}&start=0&view=Report&with_comment_count=1`
+
+  // Add selected items parameter if rows are selected
+  if (selectedRows.value?.length && !export_all.value) {
+    url += `&selected_items=${JSON.stringify(selectedRows.value)}`
+  }
+  return url
+}
+
+let standardViews = []
+let allowedViews = props.options.allowedViews || ['list']
+
+if (allowedViews.includes('list')) {
+  standardViews.push({
+    name: 'list',
+    label: __(props.options?.defaultViewName) || __('List'),
+    icon: markRaw(ListIcon),
+    onClick() {
+      viewUpdated.value = false
+      router.push({ name: route.name, params: { viewType: 'list' } })
+    },
+  })
+}
+if (allowedViews.includes('kanban')) {
+  standardViews.push({
+    name: 'kanban',
+    label: __(props.options?.defaultViewName) || __('Kanban'),
+    icon: markRaw(KanbanIcon),
+    onClick() {
+      viewUpdated.value = false
+      router.push({ name: route.name, params: { viewType: 'kanban' } })
+    },
+  })
+}
+if (allowedViews.includes('group_by')) {
+  standardViews.push({
+    name: 'group_by',
+    label: __(props.options?.defaultViewName) || __('Group By'),
+    icon: markRaw(GroupByIcon),
+    onClick() {
+      viewUpdated.value = false
+      router.push({ name: route.name, params: { viewType: 'group_by' } })
+    },
+  })
+}
+
+function getIcon(icon, type) {
+  if (isEmoji(icon)) {
+    return h('div', icon)
+  } else if (!icon && type === 'group_by') {
+    return markRaw(GroupByIcon)
+  } else if (!icon && type === 'kanban') {
+    return markRaw(KanbanIcon)
+  } else if (icon && typeof icon === 'string') {
+    // a lucide icon name (from the IconPicker) — render it through Icon so it
+    // resolves from the injected lucide sprite. The Dropdown shows nothing for
+    // a bare icon name.
+    return () => h(Icon, { icon, class: 'h-4 w-4' })
+  }
+  return icon || markRaw(ListIcon)
+}
+
+const viewsDropdownOptions = computed(() => {
+  let _views = [
+    {
+      group: __('Standard Views'),
+      hideLabel: true,
+      options: standardViews.map((item) => ({
+        ...item,
+        selected: item.name === currentView.value.name,
+        isDefault: isStandardDefault(item.name),
+      })),
+    },
+  ]
+
+  if (list.value?.data?.views) {
+    list.value.data.views.forEach((view) => {
+      view.label = __(view.label)
+      view.type = view.type || 'list'
+      view.icon = getIcon(view.icon, view.type)
+      view.selected = view.name === currentView.value.name
+      view.isDefault = isDefaultView(view)
+      view.filters =
+        typeof view.filters == 'string'
+          ? JSON.parse(view.filters)
+          : view.filters
+      view.onClick = () => {
+        viewUpdated.value = false
+        router.push({
+          name: route.name,
+          params: { viewType: view.type },
+          query: { view: view.name },
+        })
+      }
+    })
+    let publicViews = list.value.data.views.filter((v) => v.public)
+    let savedViews = list.value.data.views.filter(
+      (v) => !v.pinned && !v.public && !v.is_standard,
+    )
+    let pinnedViews = list.value.data.views.filter((v) => v.pinned)
+
+    if (savedViews.length) {
+      _views.push({
+        group: __('Saved Views'),
+        options: savedViews,
+      })
+    }
+    if (publicViews.length) {
+      _views.push({
+        group: __('Public Views'),
+        options: publicViews,
+      })
+    }
+    if (pinnedViews.length) {
+      _views.push({
+        group: __('Pinned Views'),
+        options: pinnedViews,
+      })
+    }
+  }
+
+  _views.push({
+    group: __('Actions'),
+    hideLabel: true,
+    options: [
+      {
+        label: __('Create View'),
+        icon: 'lucide-plus',
+        onClick: () => createView(),
+      },
+    ],
+  })
+
+  return _views
+})
+
+const { getFields } = getMeta(props.doctype)
+
+const customizeQuickFilter = ref(false)
+
+function showCustomizeQuickFilter() {
+  customizeQuickFilter.value = true
+  setupNewQuickFilters(quickFilters.data)
+}
+
+const newQuickFilters = ref([])
+
+function addQuickFilter(f) {
+  if (!newQuickFilters.value.some((filter) => filter.fieldname === f.value)) {
+    newQuickFilters.value.push({
+      label: f.label,
+      fieldname: f.value,
+      fieldtype: f.fieldtype,
+    })
+  }
+}
+
+function removeQuickFilter(f) {
+  newQuickFilters.value = newQuickFilters.value.filter(
+    (filter) => filter.fieldname !== f.fieldname,
+  )
+}
+
+const updateQuickFilters = createResource({
+  url: 'crm.api.doc.update_quick_filters',
+  onSuccess() {
+    customizeQuickFilter.value = false
+
+    quickFilters.update({ params: { doctype: props.doctype, cached: false } })
+    quickFilters.reload()
+    toast.success(__('Quick filters updated successfully'))
+  },
+})
+
+function saveQuickFilters() {
+  let new_filters =
+    newQuickFilters.value?.map((filter) => filter.fieldname) || []
+  let old_filters = quickFilters.data?.map((filter) => filter.fieldname) || []
+
+  updateQuickFilters.update({
+    params: {
+      quick_filters: JSON.stringify(new_filters),
+      old_filters: JSON.stringify(old_filters),
+      doctype: props.doctype,
+    },
+  })
+
+  updateQuickFilters.fetch()
+}
+
+const quickFilterOptions = computed(() => {
+  let fields = getFields()
+  if (!fields) return []
+
+  let existingQuickFilters = newQuickFilters.value.map((f) => f.fieldname)
+  let options = fields
+    .filter((f) => f.label)
+    .filter((f) => !existingQuickFilters.includes(f.fieldname))
+    .map((field) => ({
+      label: field.label,
+      value: field.fieldname,
+      fieldtype: field.fieldtype,
+    }))
+
+  if (!options.some((f) => f.fieldname === 'name')) {
+    options.push({
+      label: __('Name'),
+      value: 'name',
+      fieldtype: 'Data',
+    })
+  }
+
+  return options
+})
+
+const quickFilterList = computed(() => {
+  let filters = quickFilters.data || []
+  let params = getListParams()
+
+  filters.forEach((filter) => {
+    filter['value'] = filter.fieldtype == 'Check' ? false : ''
+    if (params?.filters?.[filter.fieldname]) {
+      let value = params.filters[filter.fieldname]
+      if (Array.isArray(value)) {
+        if (
+          (['Check', 'Select', 'Link', 'Date', 'Datetime'].includes(
+            filter.fieldtype,
+          ) &&
+            value[0]?.toLowerCase() == 'like') ||
+          value[0]?.toLowerCase() != 'like'
+        )
+          return
+        filter['value'] = value[1]?.replace(/%/g, '')
+      } else if (typeof value == 'boolean') {
+        filter['value'] = value
+      } else {
+        filter['value'] = value?.replace(/%/g, '')
+      }
+    }
+  })
+
+  return filters
+})
+
+const quickFilters = createResource({
+  url: 'crm.api.doc.get_quick_filters',
+  params: { doctype: props.doctype },
+  cache: ['Quick Filters', props.doctype],
+  onSuccess(filters) {
+    setupNewQuickFilters(filters)
+  },
+})
+
+if (!quickFilters.data) quickFilters.fetch()
+
+const filterableFields = createResource({
+  url: 'crm.api.doc.get_filterable_fields',
+  params: { doctype: props.doctype },
+  cache: ['filterableFields', props.doctype],
+})
+
+const flatFilterOptions = ref({})
+
+useCommandPaletteContext(() => listCommands())
+
+watch(commandPaletteOpen, (open) => {
+  if (open && !Object.keys(flatFilterOptions.value).length) {
+    loadFlatFilterOptions()
+  }
+})
+
+function listCommands() {
+  return [
+    {
+      id: `list-views-${props.doctype}`,
+      title: 'Switch view',
+      group: 'List',
+      icon: 'panels-top-left',
+      children: async () => viewCommands(),
+    },
+    {
+      id: `list-filters-${props.doctype}`,
+      title: 'Filter list',
+      group: 'List',
+      icon: 'list-filter',
+      children: async () => filterCommands(),
+    },
+    {
+      id: `list-refresh-${props.doctype}`,
+      title: 'Refresh list',
+      group: 'List',
+      icon: 'refresh-cw',
+      perform: reload,
+    },
+    ...flatFilterCommands(),
+  ]
+}
+
+// One row per quick filter value, so typing "qualified" applies it in one Enter.
+function flatFilterCommands() {
+  return quickFilterList.value
+    .filter(isFilterableField)
+    .flatMap((filter) =>
+      (flatFilterOptions.value[filter.fieldname] || []).map((option) =>
+        flatFilterCommand(filter, option),
+      ),
+    )
+}
+
+function flatFilterCommand(filter, option) {
+  return {
+    id: `list-filter-flat-${filter.fieldname}-${option.value}`,
+    title: `${filter.label}: ${option.label}`,
+    translate: false,
+    group: 'List',
+    icon: 'list-filter',
+    hideWhenEmpty: true,
+    keywords: option.label,
+    checked: currentFilterValue(filter) === option.value,
+    perform: () => applyQuickFilter(filter, option.value),
+  }
+}
+
+async function loadFlatFilterOptions() {
+  const filters = quickFilterList.value.filter(isFilterableField)
+  const entries = await Promise.all(
+    filters.map(async (filter) => [
+      filter.fieldname,
+      await commandFilterOptions(filter),
+    ]),
+  )
+  flatFilterOptions.value = Object.fromEntries(entries)
+}
+
+function viewCommands() {
+  return viewsDropdownOptions.value
+    .flatMap((group) => group.options || [])
+    .filter((item) => item.onClick && (!item.condition || item.condition()))
+    .map((item, index) => ({
+      id: `list-view-${index}-${item.name || item.label}`,
+      title: item.label,
+      icon: item.icon,
+      checked: item.selected,
+      perform: item.onClick,
+    }))
+}
+
+async function filterCommands() {
+  const quick = quickFilterList.value.filter(isFilterableField)
+  const configured = new Set(quick.map((filter) => filter.fieldname))
+  const commands = [
+    ...quick.map((filter) => filterFieldCommand(filter, 'Quick filters')),
+    ...(await otherFilterFields(configured)).map((field) =>
+      filterFieldCommand(field, 'All fields'),
+    ),
+  ]
+  if (Object.keys(list.value.params?.filters || {}).length) {
+    commands.unshift({
+      id: `list-filter-clear-${props.doctype}`,
+      title: 'Clear all filters',
+      icon: 'filter-x',
+      perform: () => updateFilter({}),
+    })
+  }
+  return commands
+}
+
+function isFilterableField(field) {
+  return (
+    FILTERABLE_FIELDTYPES.includes(field.fieldtype) &&
+    field.fieldname !== 'name'
+  )
+}
+
+async function otherFilterFields(configured) {
+  if (!filterableFields.data) await filterableFields.fetch()
+  return (filterableFields.data || []).filter(
+    (field) => isFilterableField(field) && !configured.has(field.fieldname),
+  )
+}
+
+function filterFieldCommand(filter, group) {
+  return {
+    id: `list-filter-${filter.fieldname}`,
+    title: filter.label,
+    group,
+    icon: 'list-filter',
+    children: async () => quickFilterOptionCommands(filter),
+  }
+}
+
+async function quickFilterOptionCommands(filter) {
+  const options = await commandFilterOptions(filter)
+  const current = currentFilterValue(filter)
+  return options.map((option) => ({
+    id: `list-filter-${filter.fieldname}-${option.value}`,
+    title: option.label,
+    translate: false,
+    checked: current === option.value,
+    perform: () => applyQuickFilter(filter, option.value),
+  }))
+}
+
+function currentFilterValue(filter) {
+  const value = list.value.params?.filters?.[filter.fieldname]
+  if (Array.isArray(value)) return String(value[1] ?? '').replace(/%/g, '')
+  return value ?? filter.value
+}
+
+function setupNewQuickFilters(filters) {
+  newQuickFilters.value = filters.map((f) => ({
+    label: f.label,
+    fieldname: f.fieldname,
+    fieldtype: f.fieldtype,
+  }))
+}
+
+function applyQuickFilter(filter, value) {
+  let filters = { ...getListParams().filters }
+  let field = filter.fieldname
+  if (value) {
+    if (
+      ['Check', 'Select', 'Link', 'Date', 'Datetime'].includes(filter.fieldtype)
+    ) {
+      filters[field] = value
+    } else {
+      filters[field] = ['LIKE', `%${value}%`]
+    }
+    filter['value'] = value
+  } else {
+    delete filters[field]
+    filter['value'] = ''
+  }
+  updateFilter(filters)
+}
+
+function updateFilter(filters) {
+  viewUpdated.value = true
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  listResource.params = defaultParams.value
+  listResource.params.filters = filters
+  view.value.filters = filters
+  listResource.reload()
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function updateSort(order_by) {
+  viewUpdated.value = true
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  list.value.params = defaultParams.value
+  list.value.params.order_by = order_by
+  view.value.order_by = order_by
+  list.value.reload()
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function updateGroupSummary(settings) {
+  viewUpdated.value = true
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  // set in place: swapping the params object makes the grouped table refetch
+  defaultParams.value.view.group_by_settings = settings
+  getListParams().view.group_by_settings = settings
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function updateGroupBy(group_by_field) {
+  viewUpdated.value = true
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  list.value.params = defaultParams.value
+  list.value.params.view.group_by_field = group_by_field
+  view.value.group_by_field = group_by_field
+  list.value.reload()
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function updateColumns(obj) {
+  if (!obj) {
+    obj = {
+      columns: list.value.data.columns,
+      rows: list.value.data.rows,
+      isDefault: false,
+    }
+  }
+
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  defaultParams.value.columns = view.value.columns = obj.isDefault
+    ? ''
+    : obj.columns
+  defaultParams.value.rows = view.value.rows = obj.isDefault ? '' : obj.rows
+  view.value.load_default_columns = obj.isDefault
+
+  if (obj.reset) {
+    defaultParams.value.columns = getParams().columns
+    defaultParams.value.rows = getParams().rows
+  }
+
+  if (obj.reload) {
+    list.value.params = defaultParams.value
+    list.value.reload()
+  }
+  viewUpdated.value = true
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  } else if (!view.value.public) {
+    persistCustomView()
+  }
+}
+
+// saves read the grouping from the list params, its only copy
+function groupBySettingsToSave() {
+  return getListParams().view?.group_by_settings || null
+}
+
+function persistCustomView() {
+  view.value.doctype = props.doctype
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.update', {
+    view: { ...view.value, group_by_settings: groupBySettingsToSave() },
+  }).then(() => {
+    reloadView()
+    viewUpdated.value = false
+  })
+}
+
+function getKanbanStatusType(status) {
+  if (props.doctype === 'CRM Lead') return getLeadStatus(status)?.type
+  if (props.doctype === 'CRM Deal') return getDealStatus(status)?.type
+  return null
+}
+
+function revertKanbanCardMove(data) {
+  let columns = list.value?.data?.data
+  if (!data?.from || !columns) return
+
+  let toColumn = columns.find((col) => col.column.name === data.to)
+  let fromColumn = columns.find((col) => col.column.name === data.from)
+  if (!toColumn || !fromColumn) return
+
+  let index = toColumn.data.findIndex((row) => row.name === data.item)
+  if (index === -1) return
+
+  let [row] = toColumn.data.splice(index, 1)
+  let restoreAt = Math.min(data.fromIndex ?? 0, fromColumn.data.length)
+  fromColumn.data.splice(restoreAt, 0, row)
+}
+
+function persistKanbanColumnOrder(kanbanColumns) {
+  if (!kanbanColumns) return
+  viewUpdated.value = true
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  list.value.params = defaultParams.value
+  list.value.params.kanban_columns = kanbanColumns
+  view.value.kanban_columns = kanbanColumns
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function moveKanbanCard(data, fields) {
+  call('frappe.client.set_value', {
+    doctype: props.doctype,
+    name: data.item,
+    fieldname: fields,
+  })
+    .then(() => {
+      persistKanbanColumnOrder(data.kanban_columns)
+    })
+    .catch(() => {
+      toast.error(__('Could not move the card. Reverting.'))
+      revertKanbanCardMove(data)
+    })
+}
+
+function confirmKanbanLostReason(payload) {
+  let data = pendingKanbanMove.value
+  pendingKanbanMove.value = null
+  if (!data) return
+  moveKanbanCard(data, { [view.value.column_field]: data.to, ...payload })
+}
+
+function cancelKanbanLostReason() {
+  let data = pendingKanbanMove.value
+  pendingKanbanMove.value = null
+  toast.info(__('Move cancelled: a lost reason is required for this status.'))
+  revertKanbanCardMove(data)
+}
+
+function updateKanbanSettings(data) {
+  if (data.item && data.to) {
+    if (
+      view.value.column_field === 'status' &&
+      getKanbanStatusType(data.to) === 'Lost'
+    ) {
+      pendingKanbanMove.value = data
+      showKanbanLostReasonModal.value = true
+      return
+    }
+    moveKanbanCard(data, { [view.value.column_field]: data.to })
+    return
+  }
+
+  if (data.fetchNewColumns) {
+    fetchAndUpdateKanbanColumns(view.value)
+    return
+  }
+
+  viewUpdated.value = true
+
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  list.value.params = defaultParams.value
+  if (data.kanban_columns) {
+    list.value.params.kanban_columns = data.kanban_columns
+    view.value.kanban_columns = data.kanban_columns
+  }
+  if (data.kanban_fields) {
+    list.value.params.kanban_fields = data.kanban_fields
+    view.value.kanban_fields = data.kanban_fields
+  }
+  if (data.column_field && data.column_field != view.value.column_field) {
+    list.value.params.column_field = data.column_field
+    view.value.column_field = data.column_field
+    list.value.params.kanban_columns = ''
+    view.value.kanban_columns = ''
+  }
+  if (data.title_field && data.title_field != view.value.title_field) {
+    list.value.params.title_field = data.title_field
+    view.value.title_field = data.title_field
+  }
+
+  list.value.reload()
+
+  if (!route.query.view) {
+    createOrUpdateStandardView()
+  }
+}
+
+function loadMoreKanban(columnName) {
+  let columns = list.value.data.kanban_columns || '[]'
+
+  if (typeof columns === 'string') {
+    columns = JSON.parse(columns)
+  }
+
+  let column = columns.find((c) => c.name == columnName)
+
+  if (!column.page_length) {
+    column.page_length = 40
+  } else {
+    column.page_length += 20
+  }
+  list.value.params.kanban_columns = columns
+  view.value.kanban_columns = columns
+  list.value.reload()
+}
+
+// Saving the standard view re-reads the views store so it matches the server,
+// which trips the `getView` watcher below into rebuilding the list params from
+// the store. For our own save that only replays state already applied locally,
+// and when two saves overlap (quick filter typing) the earlier re-read can land
+// last and rewind the filters — and the quick filter input — to the older
+// value (#2113). Count these re-reads so the watcher leaves the params alone.
+let pendingSelfViewReloads = 0
+
+function reloadViewAfterSave() {
+  pendingSelfViewReloads++
+  return reloadView().catch((e) => {
+    pendingSelfViewReloads--
+    throw e
+  })
+}
+
+function createOrUpdateStandardView() {
+  if (route.query.view) return
+  view.value.doctype = props.doctype
+  call(
+    'crm.fcrm.doctype.crm_view_settings.crm_view_settings.create_or_update_standard_view',
+    {
+      view: { ...view.value, group_by_settings: groupBySettingsToSave() },
+    },
+  ).then(() => {
+    reloadViewAfterSave()
+    view.value = {
+      label: view.value.label,
+      type: view.value.type || 'list',
+      icon: view.value.icon,
+      name: view.value.name,
+      filters: defaultParams.value.filters,
+      order_by: defaultParams.value.order_by,
+      group_by_field: defaultParams.value.view?.group_by_field,
+      column_field: defaultParams.value.column_field,
+      title_field: defaultParams.value.title_field,
+      kanban_columns: defaultParams.value.kanban_columns,
+      kanban_fields: defaultParams.value.kanban_fields,
+      columns: defaultParams.value.columns,
+      rows: defaultParams.value.rows,
+      route_name: route.name,
+      load_default_columns: view.value.load_default_columns,
+    }
+    viewUpdated.value = false
+  })
+}
+
+function updatePageLength(value, loadMore = false) {
+  if (list.value.loading) return
+  if (!defaultParams.value) {
+    defaultParams.value = getParams()
+  }
+  list.value.params = defaultParams.value
+  if (loadMore) {
+    list.value.params.page_length += list.value.params.page_length_count
+  } else {
+    if (
+      value == list.value.params.page_length &&
+      value == list.value.params.page_length_count
+    )
+      return
+    list.value.params.page_length = value
+    list.value.params.page_length_count = value
+  }
+  list.value.reload()
+}
+
+// View Actions
+const viewActions = (view, close) => {
+  let isStandard = typeof view.name === 'string'
+  let _view = getView(view.name)
+
+  if (isStandard) {
+    _view = getView(null, view.name, props.doctype)
+  }
+
+  if (!_view) {
+    _view = {
+      label: view.label,
+      type: view.name,
+      dt: props.doctype,
+    }
+  }
+
+  let actions = [
+    {
+      group: __('Actions'),
+      hideLabel: true,
+      options: [
+        {
+          label: __('Duplicate'),
+          icon: () => h(DuplicateIcon, { class: 'h-4 w-4' }),
+          onClick: () => duplicateView(_view, close),
+        },
+      ],
+    },
+  ]
+
+  if (isStandard && !isDefaultView(_view)) {
+    actions[0].options.unshift({
+      label: __('Set As Default'),
+      icon: () => h(CheckIcon, { class: 'h-4 w-4' }),
+      onClick: () => setAsDefault(_view, close),
+    })
+  }
+
+  if (!isStandard && (!_view.public || isManager())) {
+    actions[0].options.push({
+      label: __('Edit'),
+      icon: () => h(EditIcon, { class: 'h-4 w-4' }),
+      onClick: () => editView(_view, close),
+    })
+
+    if (!_view.public) {
+      actions[0].options.push({
+        label: _view.pinned ? __('Unpin View') : __('Pin View'),
+        icon: () => h(_view.pinned ? UnpinIcon : PinIcon, { class: 'h-4 w-4' }),
+        onClick: () => pinView(_view),
+      })
+    }
+
+    if (isManager()) {
+      actions[0].options.push({
+        label: _view.public ? __('Make Private') : __('Make Public'),
+        icon: () =>
+          h('span', {
+            class: [_view.public ? 'lucide-lock' : 'lucide-unlock', 'h-4 w-4'],
+            'aria-hidden': true,
+          }),
+        onClick: () => publicView(_view),
+      })
+    }
+
+    actions.push({
+      group: __('Delete View'),
+      hideLabel: true,
+      options: [
+        {
+          label: __('Delete'),
+          icon: 'lucide-trash-2',
+          onClick: () =>
+            $dialog({
+              title: __('Delete View'),
+              message: __('Are you sure you want to delete "{0}" view?', [
+                _view.label,
+              ]),
+              variant: 'danger',
+              actions: [
+                {
+                  label: __('Delete'),
+                  variant: 'solid',
+                  theme: 'red',
+                  onClick: ({ close }) => deleteView(_view, close),
+                },
+              ],
+            }),
+        },
+      ],
+    })
+  }
+  return actions
+}
+
+function isDefaultView(v) {
+  let defaultView = getDefaultView(route.name)
+
+  if (!defaultView || !v.name) return false
+
+  return defaultView.name == v.name
+}
+
+// List opens by default when no view has been set as default
+function isStandardDefault(type) {
+  if (!getDefaultView(route.name)) return type === 'list'
+  return isDefaultView(getView(null, type, props.doctype) || {})
+}
+
+const viewModalObj = ref({})
+
+function createView() {
+  view.value.name = ''
+  view.value.label = ''
+  view.value.icon = ''
+  viewModalObj.value = {
+    ...view.value,
+    group_by_settings: groupBySettingsToSave(),
+  }
+  viewModalObj.value.mode = 'create'
+  showViewModal.value = true
+}
+
+function setAsDefault(v, close) {
+  close?.()
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.set_as_default', {
+    name: v.name,
+    type: v.type,
+    doctype: v.dt,
+  }).then(() => {
+    reloadView()
+    list.value.reload()
+  })
+}
+
+function duplicateView(v, close) {
+  v.label = v.label + __(' (New)')
+  viewModalObj.value = v
+  viewModalObj.value.mode = 'duplicate'
+  showViewModal.value = true
+  close()
+}
+
+function editView(v, close) {
+  viewModalObj.value = v
+  viewModalObj.value.mode = 'edit'
+  showViewModal.value = true
+  close()
+}
+
+function publicView(v) {
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.public', {
+    name: v.name,
+    value: !v.public,
+  }).then(() => {
+    v.public = !v.public
+    reloadView()
+    list.value.reload()
+  })
+}
+
+function pinView(v) {
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.pin', {
+    name: v.name,
+    value: !v.pinned,
+  }).then(() => {
+    v.pinned = !v.pinned
+    reloadView()
+    list.value.reload()
+  })
+}
+
+function deleteView(v, close) {
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.delete', {
+    name: v.name,
+  }).then(() => {
+    router.push({ name: route.name, params: { viewType: 'list' } })
+    reloadView()
+    list.value.reload()
+  })
+  close()
+}
+
+function fetchAndUpdateKanbanColumns(v) {
+  call(
+    'crm.fcrm.doctype.crm_view_settings.crm_view_settings.fetch_and_update_kanban_columns',
+    {
+      name: v.name,
+    },
+  ).then((columns) => {
+    list.value.params.kanban_columns = columns
+    view.value.kanban_columns = columns
+    list.value.reload()
+  })
+}
+
+function cancelChanges() {
+  reload()
+  viewUpdated.value = false
+}
+
+function saveView() {
+  view.value = {
+    label: view.value.label,
+    type: view.value.type || 'list',
+    icon: view.value.icon,
+    name: view.value.name,
+    filters: defaultParams.value.filters,
+    order_by: defaultParams.value.order_by,
+    group_by_field: defaultParams.value.view.group_by_field,
+    column_field: defaultParams.value.column_field,
+    title_field: defaultParams.value.title_field,
+    kanban_columns: defaultParams.value.kanban_columns,
+    kanban_fields: defaultParams.value.kanban_fields,
+    columns: defaultParams.value.columns,
+    rows: defaultParams.value.rows,
+    route_name: route.name,
+    load_default_columns: view.value.load_default_columns,
+    group_by_settings: groupBySettingsToSave(),
+  }
+  viewModalObj.value = view.value
+  viewModalObj.value.mode = 'edit'
+  showViewModal.value = true
+}
+
+function applyFilter({ event, idx, column, item, firstColumn }) {
+  let restrictedFieldtypes = ['Datetime', 'Time']
+  if (restrictedFieldtypes.includes(column.type) || idx === 0) return
+  if (idx === 1 && firstColumn.key == '_liked_by') return
+
+  event.stopPropagation()
+  event.preventDefault()
+
+  let filters = { ...getListParams().filters }
+
+  let value = item.name ?? item.label ?? item
+
+  if (value !== null && value !== undefined && value !== '') {
+    filters[column.key] = value
+  } else {
+    delete filters[column.key]
+  }
+
+  if (column.key == '_assign') {
+    if (item.length > 1) {
+      let target = event.target.closest('.user-avatar')
+      if (target) {
+        let name = target.getAttribute('data-name')
+        filters['_assign'] = ['LIKE', `%${name}%`]
+      }
+    } else {
+      filters['_assign'] = ['LIKE', `%${item[0].name}%`]
+    }
+  }
+  updateFilter(filters)
+}
+
+function applyLikeFilter() {
+  let filters = { ...getListParams().filters }
+  if (!filters._liked_by) {
+    filters['_liked_by'] = ['LIKE', '%@me%']
+  } else {
+    delete filters['_liked_by']
+  }
+  updateFilter(filters)
+}
+
+function likeDoc({ name, liked }) {
+  createResource({
+    url: 'frappe.desk.like.toggle_like',
+    params: { doctype: props.doctype, name: name, add: liked ? 'No' : 'Yes' },
+    auto: true,
+    onSuccess: () => reload(),
+  })
+}
+
+defineExpose({
+  groupSummary,
+  currentFilters,
+  updateGroupSummary,
+  applyFilter,
+  applyLikeFilter,
+  likeDoc,
+  updateKanbanSettings,
+  fetchAndUpdateKanbanColumns,
+  loadMoreKanban,
+  viewActions,
+  viewsDropdownOptions,
+  currentView,
+  updateSelections,
+})
+
+// Watchers
+watch(
+  () => getView(route.query.view, route.params.viewType, props.doctype),
+  (value, old_value) => {
+    if (pendingSelfViewReloads > 0) {
+      pendingSelfViewReloads--
+      return
+    }
+    if (_.isEqual(value, old_value)) return
+    reload()
+  },
+  { deep: true },
+)
+
+watch([() => route, () => route.params.viewType], (value, old_value) => {
+  if (value[0] === old_value[0] && value[1] === value[0]) return
+  reload()
+})
+</script>
