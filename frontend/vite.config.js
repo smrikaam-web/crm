@@ -5,6 +5,21 @@ import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 import frappeui from 'frappe-ui/vite'
 
+import fs from 'fs'
+
+// Resolve frappe and whatsapp UI paths, handling both in-bench and mounted workspace execution
+const getFrameworkUiPath = () => {
+  const localRelative = path.resolve(import.meta.dirname, '../../frappe/ui/src')
+  if (fs.existsSync(localRelative)) return localRelative
+  return '/home/frappe/frappe-bench/apps/frappe/ui/src'
+}
+
+const getWhatsappUiPath = () => {
+  const localRelative = path.resolve(import.meta.dirname, '../../whatsapp/ui/src')
+  if (fs.existsSync(localRelative)) return localRelative
+  return '/home/frappe/frappe-bench/apps/whatsapp/ui/src'
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(() => {
   const config = {
@@ -58,18 +73,8 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, 'src'),
-        // point at the package src dir (not index.ts) so subpath imports like
-        // `@whatsapp/ui/components/Messages` resolve to a real file
-        '@whatsapp/ui': path.resolve(
-          import.meta.dirname,
-          '../../whatsapp/ui/src',
-        ),
-        // same shape for @framework/ui: its account form pieces (Grid, Link) are
-        // what @whatsapp/ui's AccountForm is built on
-        '@framework/ui': path.resolve(
-          import.meta.dirname,
-          '../../frappe/ui/src',
-        ),
+        '@whatsapp/ui': getWhatsappUiPath(),
+        '@framework/ui': getFrameworkUiPath(),
       },
       // ensure the linked @whatsapp/ui package reuses the host app's single copy of each peer:
       // the symlinked source has no node_modules of its own, so dedupe resolves its imports
@@ -130,7 +135,10 @@ export default defineConfig(() => {
       fs: {
         // allow the bench `apps/` dir so Vite can serve linked local packages
         // (@whatsapp/ui, @framework/ui) that live in sibling app repos
-        allow: [path.resolve(import.meta.dirname, '../..')],
+        allow: [
+          path.resolve(import.meta.dirname, '../..'),
+          '/home/frappe/frappe-bench/apps',
+        ],
       },
     },
   }
