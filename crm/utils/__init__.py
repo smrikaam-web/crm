@@ -346,6 +346,14 @@ def update_modified_background(doctype: str, docname: str):
 
 def on_communication_insert(doc: Communication, method: str | None = None):
 	create_lead_from_incoming_email(doc)
+	if doc.communication_type == "Communication" and (not doc.communication_medium or doc.communication_medium == "Email") and doc.sent_or_received == "Sent":
+		try:
+			from crm.api.daily_allocation import check_and_advance_task_to_in_progress
+			c_ref = doc.reference_name if doc.reference_doctype == "Contact" else None
+			l_ref = doc.reference_name if doc.reference_doctype == "CRM Lead" else None
+			check_and_advance_task_to_in_progress(contact=c_ref, lead=l_ref, email=doc.recipients)
+		except Exception:
+			pass
 
 
 def on_communication_update(doc: Communication, method: str | None = None):

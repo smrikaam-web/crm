@@ -407,6 +407,9 @@ def get_data(
 		if meta.track_seen and "_seen" not in rows:
 			rows.append("_seen")
 
+		if doctype == "Contact" and "_assign" not in rows:
+			rows.append("_assign")
+
 		data = (
 			frappe.get_list(
 				doctype,
@@ -834,6 +837,10 @@ def remove_contact_link(doctype, docname):
 		return
 
 	try:
+		if doctype == "CRM Daily Allocation":
+			frappe.delete_doc("CRM Daily Allocation", docname, force=True, ignore_permissions=True)
+			return
+
 		linked_doc_data = frappe.get_doc(doctype, docname)
 		linked_doc_data.update(
 			{
@@ -890,6 +897,11 @@ def delete_bulk_docs(doctype: str, items: str | list, delete_linked: bool = Fals
 	if not items:
 		frappe.throw(_("Items are required"))
 
+	from crm.api.security import is_admin_only
+	if doctype in ("Contact", "CRM Organization", "CRM Lead", "Communication", "CRM Call Log", "FCRM Note", "Note", "CRM Daily Allocation"):
+		if not is_admin_only():
+			frappe.throw(_("Permission denied. Only Administrator can delete {0} documents.").format(doctype), frappe.PermissionError)
+
 	items = frappe.parse_json(items)
 	if not isinstance(items, list):
 		frappe.throw(_("Items must be a list"))
@@ -921,5 +933,7 @@ def delete_bulk_docs(doctype: str, items: str | list, delete_linked: bool = Fals
 	if len(items) > 10:
 		frappe.enqueue("frappe.desk.reportview.delete_bulk", doctype=doctype, items=items)
 	else:
-		delete_bulk(doctype, items)
+		undeleted = delete_bulk(doctype, items)
+		if undeleted:
+			frappe.log_error(f"Undeleted items in delete_bulk_docs for {doctype}: {undeleted}", "Bulk Delete Error")
 	return "success"

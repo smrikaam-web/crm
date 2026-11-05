@@ -144,6 +144,8 @@ permission_query_conditions = {
 	"CRM Deal": "crm.permissions.org_hierarchy.get_deal_permission_query_conditions",
 	"CRM Notification": "crm.fcrm.doctype.crm_notification.crm_notification.get_permission_query_conditions",
 	"CRM Enrichment Run": "crm.domain_enrichment.doctype.crm_enrichment_run.crm_enrichment_run.get_permission_query_conditions",
+	"Contact": "crm.api.security.get_contact_permission_conditions",
+	"CRM Organization": "crm.api.security.get_organization_permission_conditions",
 }
 
 has_permission = {
@@ -151,6 +153,8 @@ has_permission = {
 	"CRM Deal": "crm.permissions.org_hierarchy.has_deal_permission",
 	"CRM Notification": "crm.fcrm.doctype.crm_notification.crm_notification.has_permission",
 	"CRM Enrichment Run": "crm.domain_enrichment.doctype.crm_enrichment_run.crm_enrichment_run.has_permission",
+	"Contact": "crm.api.security.has_contact_permission",
+	"CRM Organization": "crm.api.security.has_organization_permission",
 }
 
 # Automation Engine
@@ -256,6 +260,20 @@ if int(frappe.__version__.split(".")[0]) < 16:
 doc_events = {
 	"Contact": {
 		"validate": ["crm.api.contact.validate"],
+		"on_trash": [
+			"crm.api.security.guard_contact_delete",
+			"crm.overrides.contact.contact_on_trash",
+		],
+	},
+	"CRM Organization": {
+		"on_trash": [
+			"crm.api.security.guard_organization_delete",
+			"crm.api.security.organization_on_trash",
+		],
+	},
+	"CRM Lead": {
+		"on_update": ["crm.automation.events.on_lead_update"],
+		"on_trash": ["crm.api.security.guard_lead_delete"],
 	},
 	"Notification Log": {
 		"before_insert": ["crm.extends.notification_log.before_insert"],
@@ -266,11 +284,31 @@ doc_events = {
 		"on_update": ["crm.api.todo.on_update"],
 	},
 	"Communication": {
+		"validate": ["crm.api.security.guard_communication_update"],
 		"after_insert": [
 			"crm.utils.on_communication_insert",
 			"crm.automation.events.on_communication",
 		],
 		"on_update": ["crm.utils.on_communication_update"],
+		"on_trash": ["crm.api.security.guard_communication_delete"],
+	},
+	"CRM Call Log": {
+		"validate": ["crm.api.security.guard_call_log_update"],
+		"after_insert": ["crm.api.daily_allocation.on_call_log_update"],
+		"on_update": ["crm.api.daily_allocation.on_call_log_update"],
+		"on_trash": ["crm.api.security.guard_call_log_delete"],
+	},
+	"FCRM Note": {
+		"validate": ["crm.api.security.guard_note_update"],
+		"on_trash": ["crm.api.security.guard_note_delete"],
+	},
+	"Note": {
+		"validate": ["crm.api.security.guard_note_update"],
+		"on_trash": ["crm.api.security.guard_note_delete"],
+	},
+	"CRM Daily Allocation": {
+		"validate": ["crm.api.security.guard_allocation_update"],
+		"on_trash": ["crm.api.security.guard_allocation_delete"],
 	},
 	"Comment": {
 		"after_insert": ["crm.utils.on_comment_insert"],
@@ -289,9 +327,6 @@ doc_events = {
 			"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.create_customer_in_erpnext",
 			"crm.automation.events.on_deal_update",
 		],
-	},
-	"CRM Lead": {
-		"on_update": ["crm.automation.events.on_lead_update"],
 	},
 	"Sales Order": {
 		"before_validate": [
