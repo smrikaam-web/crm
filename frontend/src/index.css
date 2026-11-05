@@ -1,5 +1,48 @@
 @import 'frappe-ui/style.css';
 
+:root {
+  --radius-0: 0px;
+  --radius-1: 2px;
+  --radius-2: 3px;
+  --radius-3: 3px;
+  --radius-4: 4px;
+  --radius-5: 4px;
+  --radius-6: 4px;
+  --radius-7: 4px;
+  --radius-8: 4px;
+  --radius-9: 4px;
+
+  /* Subtle, clean enterprise elevation (no heavy blurry drop shadows) */
+  --elevation-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --elevation-sm: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 1px 2px 0px rgba(0, 0, 0, 0.06);
+  --elevation-base: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 1px 3px 0px rgba(0, 0, 0, 0.08);
+  --elevation-md: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 2px 4px 0px rgba(0, 0, 0, 0.08);
+  --elevation-lg: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 4px 8px -1px rgba(0, 0, 0, 0.1);
+  --elevation-xl: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 6px 16px -2px rgba(0, 0, 0, 0.12);
+  --elevation-2xl: inset 0px 0.25px 1px 0px rgba(255, 255, 255, 0.2), 0px 8px 20px -3px rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="dark"] {
+  --radius-0: 0px;
+  --radius-1: 2px;
+  --radius-2: 3px;
+  --radius-3: 3px;
+  --radius-4: 4px;
+  --radius-5: 4px;
+  --radius-6: 4px;
+  --radius-7: 4px;
+  --radius-8: 4px;
+  --radius-9: 4px;
+
+  --elevation-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --elevation-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --elevation-base: 0 1px 3px 0 rgba(0, 0, 0, 0.45);
+  --elevation-md: 0 2px 4px 0 rgba(0, 0, 0, 0.5);
+  --elevation-lg: 0 4px 8px -1px rgba(0, 0, 0, 0.55);
+  --elevation-xl: 0 6px 16px -2px rgba(0, 0, 0, 0.6);
+  --elevation-2xl: 0 8px 20px -3px rgba(0, 0, 0, 0.65);
+}
+
 @layer components {
   .prose-f {
     @apply break-words
@@ -38,4 +81,93 @@
 /* mentions show a hover card, so use the arrow instead of the text cursor */
 .mention[data-id] {
   cursor: default;
+}
+
+/* ==========================================================================
+   GLOBAL CRM UI DESIGN STANDARDIZATION
+   Master Reference Standard (sharp rectangular edges 2-4px, visible 1px borders)
+   ========================================================================== */
+
+/* 1. Dialogs & Modals: 4px corners, 1px border, clean shadow */
+.dialog-content,
+[role="dialog"] > div[data-slot="content"],
+div[data-slot="content"].dialog-content {
+  border: 1px solid var(--outline-gray-2) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.12), 0 2px 4px -2px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="dark"] .dialog-content,
+[data-theme="dark"] [role="dialog"] > div[data-slot="content"],
+[data-theme="dark"] div[data-slot="content"].dialog-content {
+  border: 1px solid var(--outline-gray-7) !important;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 2. Popovers, Dropdowns, Selects & Floating Panels */
+[data-panel],
+[data-slot="content-body"],
+.menu-content,
+[data-reka-popper-content-wrapper] [data-slot="content-body"] {
+  border: 1px solid var(--outline-gray-2) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="dark"] [data-panel],
+[data-theme="dark"] [data-slot="content-body"],
+[data-theme="dark"] .menu-content,
+[data-theme="dark"] [data-reka-popper-content-wrapper] [data-slot="content-body"] {
+  border: 1px solid var(--outline-gray-7) !important;
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 3. Table & List Headers */
+.grid.rounded-4.bg-surface-gray-2,
+div[class*="grid items-center"][class*="bg-surface-gray-2"] {
+  background-color: var(--surface-gray-1) !important;
+  border: 1px solid var(--outline-gray-2) !important;
+  border-radius: 4px !important;
+  color: var(--ink-gray-5) !important;
+}
+
+[data-theme="dark"] .grid.rounded-4.bg-surface-gray-2,
+[data-theme="dark"] div[class*="grid items-center"][class*="bg-surface-gray-2"] {
+  background-color: var(--surface-gray-8) !important;
+  border: 1px solid var(--outline-gray-7) !important;
+  color: var(--ink-gray-4) !important;
+}
+
+/* 4. Dashboard KPI Number Cards & Chart Cards */
+[data-slot="chart-card"] {
+  border: 1px solid var(--outline-gray-2) !important;
+  border-radius: 4px !important;
+  background-color: var(--surface-base) !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="dark"] [data-slot="chart-card"] {
+  border: 1px solid var(--outline-gray-7) !important;
+  background-color: var(--surface-gray-9) !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 5. Badges: crisp rectangular edge (~3px radius) matching enterprise look */
+.inline-flex.rounded-full.leading-tighter,
+[data-slot="badge"] {
+  border-radius: 3px !important;
+}
+
+/* 6. Form controls and inputs: rectangular 3-4px edges */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="search"],
+input[type="date"],
+select,
+textarea {
+  border-radius: 4px;
 }

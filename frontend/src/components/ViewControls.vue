@@ -1839,6 +1839,7 @@ function likeDoc({ name, liked }) {
 }
 
 defineExpose({
+  reload,
   groupSummary,
   currentFilters,
   updateGroupSummary,
@@ -1855,6 +1856,14 @@ defineExpose({
 })
 
 // Watchers
+watch(
+  () => props.filters,
+  () => {
+    reload()
+  },
+  { deep: true },
+)
+
 watch(
   () => getView(route.query.view, route.params.viewType, props.doctype),
   (value, old_value) => {
