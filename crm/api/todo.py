@@ -35,6 +35,9 @@ def after_insert(doc, method):
 			doc.reference_type, doc.reference_name, fieldname, doc.allocated_to, update_modified=False
 		)
 
+	if doc.reference_type == "Contact" and doc.reference_name:
+		frappe.db.set_value("Contact", doc.reference_name, "custom_is_dropped", 0, update_modified=False)
+
 	if doc.reference_type in ["CRM Lead", "CRM Deal", "CRM Task"] and doc.reference_name and doc.allocated_to:
 		notify_assigned_user(doc)
 

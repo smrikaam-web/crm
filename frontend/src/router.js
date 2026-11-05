@@ -77,7 +77,16 @@ const routes = [
     alias: '/tasks',
     path: '/tasks/view/:viewType?',
     name: 'Tasks',
-    component: () => import('@/pages/Tasks.vue'),
+    component: () => import('@/pages/MyTasks.vue'),
+  },
+  {
+    path: '/tasks/prospect/:contactId',
+    name: 'TaskProspect',
+    component: () => import('@/pages/TaskProspectDetail.vue'),
+    props: (route) => ({
+      contactId: route.params.contactId,
+      taskId: route.query.taskId || null,
+    }),
   },
   {
     alias: '/contacts',
@@ -128,6 +137,12 @@ const routes = [
     name: 'DataImport',
     component: () => import('@/pages/DataImport.vue'),
     meta: { viewKey: 'data-import' },
+  },
+  {
+    alias: '/daily-allocation',
+    path: '/daily-allocation/view/:viewType?',
+    name: 'Daily Allocation',
+    component: () => import('@/pages/DailyAllocation.vue'),
   },
   {
     path: '/welcome',

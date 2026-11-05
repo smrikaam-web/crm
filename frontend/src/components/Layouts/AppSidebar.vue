@@ -35,6 +35,26 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="!mobile"
+            :label="__('Dashboard')"
+            :route="{ name: 'Dashboard' }"
+            :active="activeItem === 'Dashboard'"
+            @click="selectItem($event, 'Dashboard')"
+          >
+            <template #prefix>
+              <Icon :icon="LucideLayoutDashboard" class="size-4 text-ink-gray-7" />
+            </template>
+            <Tooltip
+              :text="__('Dashboard')"
+              side="right"
+              :hoverDelay="1500"
+              :disabled="isCollapsed"
+            >
+              <span class="truncate text-sm">{{ __('Dashboard') }}</span>
+            </Tooltip>
+          </SidebarItem>
+
+          <SidebarItem
             id="notifications-btn"
             :label="__('Notifications')"
             :route="mobile ? { name: 'Notifications' } : undefined"
@@ -63,8 +83,86 @@
             />
           </SidebarItem>
 
+          <!-- Grouped Collapsible Sections: Data, Outreach, Sales Pipeline -->
+          <div
+            v-for="section in groupedSections"
+            :key="section.name"
+            class="flex flex-col"
+          >
+            <SidebarLabel
+              divider
+              class="mb-1 mt-4 select-none"
+              :class="!isCollapsed && 'cursor-pointer'"
+              @click="toggleSection(section.name)"
+            >
+              <span class="flex items-center gap-1.5">
+                <span
+                  class="lucide-chevron-down -ml-0.5 size-4 shrink-0 text-ink-gray-9 transition-transform duration-300 ease-in-out"
+                  :class="{ 'rotate-180': isSectionOpened(section.name) }"
+                  aria-hidden="true"
+                />
+                <span class="truncate">{{ __(section.name) }}</span>
+              </span>
+            </SidebarLabel>
+            <transition
+              enter-active-class="duration-300 ease-in"
+              leave-active-class="duration-300 ease-[cubic-bezier(0, 1, 0.5, 1)]"
+              enter-to-class="max-h-[300px] overflow-hidden"
+              leave-from-class="max-h-[300px] overflow-hidden"
+              enter-from-class="max-h-0 overflow-hidden"
+              leave-to-class="max-h-0 overflow-hidden"
+            >
+              <nav
+                v-show="isSectionOpened(section.name)"
+                class="flex flex-col gap-1"
+              >
+                <SidebarItem
+                  v-for="link in section.views"
+                  :key="link.key"
+                  :route="link.to"
+                  :label="__(link.label)"
+                  :active="activeItem === link.key"
+                  @click="selectItem($event, link.key)"
+                >
+                  <template #prefix>
+                    <Icon :icon="link.icon" class="size-4 text-ink-gray-7" />
+                  </template>
+                  <Tooltip
+                    :text="__(link.label)"
+                    side="right"
+                    :hoverDelay="1500"
+                    :disabled="isCollapsed"
+                  >
+                    <span class="truncate text-sm">{{ __(link.label) }}</span>
+                  </Tooltip>
+                </SidebarItem>
+              </nav>
+            </transition>
+          </div>
+
+          <!-- Standalone Item: Call Logs -->
+          <SidebarItem
+            :route="{ name: 'Call Logs' }"
+            :label="__('Call Logs')"
+            :active="activeItem === 'Call Logs'"
+            @click="selectItem($event, 'Call Logs')"
+          >
+            <template #prefix>
+              <Icon :icon="PhoneIcon" class="size-4 text-ink-gray-7" />
+            </template>
+            <Tooltip
+              :text="__('Call Logs')"
+              side="right"
+              :hoverDelay="1500"
+              :disabled="isCollapsed"
+            >
+              <span class="truncate text-sm">{{ __('Call Logs') }}</span>
+            </Tooltip>
+          </SidebarItem>
+
+          <!-- Custom / Public / Pinned Views -->
           <CollapsibleSection
-            v-for="section in allViews"
+            v-for="section in customViews"
             :key="section.name"
             :label="section.name"
             :hideLabel="section.hideLabel"
@@ -80,8 +178,8 @@
               >
                 <span class="flex items-center gap-1.5">
                   <span
-                    class="lucide-chevron-right -ml-0.5 size-4 shrink-0 text-ink-gray-9 transition-transform duration-300 ease-in-out"
-                    :class="{ 'rotate-90': opened }"
+                    class="lucide-chevron-down -ml-0.5 size-4 shrink-0 text-ink-gray-9 transition-transform duration-300 ease-in-out"
+                    :class="{ 'rotate-180': opened }"
                     aria-hidden="true"
                   />
                   <span class="truncate">{{ __(section.name) }}</span>
@@ -205,6 +303,9 @@ import NoteIcon from '@/components/Icons/NoteIcon.vue'
 import OrganizationsIcon from '@/components/Icons/OrganizationsIcon.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import TaskIcon from '@/components/Icons/TaskIcon.vue'
+import FileSpreadsheetIcon from '@/components/Icons/FileSpreadsheetIcon.vue'
+import CalendarIcon from '@/components/Icons/CalendarIcon.vue'
+import LucideLayoutDashboard from '~icons/lucide/layout-dashboard'
 import CollapseSidebar from '@/components/Icons/CollapseSidebar.vue'
 import NotificationsIcon from '@/components/Icons/NotificationsIcon.vue'
 import HelpIcon from '@/components/Icons/HelpIcon.vue'
@@ -269,22 +370,96 @@ const isCollapsed = computed(() => isSidebarCollapsed.value && !props.mobile)
 const isFCSite = ref(window.is_fc_site)
 const isDemoSite = ref(window.is_demo_site)
 
-const links = getNavigationItems({ mobile: props.mobile })
+const defaultSectionStates = {
+  Data: false,
+  Outreach: false,
+  'Sales Pipeline': true,
+}
 
-const allViews = computed(() => {
-  let _views = [
-    {
-      name: 'All Views',
-      hideLabel: true,
-      opened: true,
-      views: links.map((link) => ({
-        label: link.label,
-        icon: link.icon,
-        key: link.route,
-        to: { name: link.route },
-      })),
-    },
-  ]
+const sectionStates = useStorage(
+  'crm_sidebar_sections_state',
+  defaultSectionStates,
+  sessionStorage,
+)
+
+function isSectionOpened(name) {
+  if (sectionStates.value && typeof sectionStates.value[name] === 'boolean') {
+    return sectionStates.value[name]
+  }
+  return name === 'Sales Pipeline'
+}
+
+function toggleSection(name) {
+  if (isCollapsed.value) return
+  const current = isSectionOpened(name)
+  sectionStates.value = {
+    ...sectionStates.value,
+    [name]: !current,
+  }
+}
+
+const groupedSections = computed(() => [
+  {
+    name: 'Data',
+    views: [
+      {
+        label: 'Contacts',
+        icon: ContactsIcon,
+        key: 'Contacts',
+        to: { name: 'Contacts' },
+      },
+      {
+        label: 'Organizations',
+        icon: OrganizationsIcon,
+        key: 'Organizations',
+        to: { name: 'Organizations' },
+      },
+      {
+        label: 'Import',
+        icon: FileSpreadsheetIcon,
+        key: 'Data Imports',
+        to: { name: 'Data Imports' },
+      },
+      {
+        label: 'Daily Allocation',
+        icon: CalendarIcon,
+        key: 'Daily Allocation',
+        to: { name: 'Daily Allocation' },
+      },
+    ],
+  },
+  {
+    name: 'Outreach',
+    views: [
+      {
+        label: 'My Task',
+        icon: TaskIcon,
+        key: 'Tasks',
+        to: { name: 'Tasks' },
+      },
+    ],
+  },
+  {
+    name: 'Sales Pipeline',
+    views: [
+      {
+        label: 'Leads',
+        icon: LeadsIcon,
+        key: 'Leads',
+        to: { name: 'Leads' },
+      },
+      {
+        label: 'Deals',
+        icon: DealsIcon,
+        key: 'Deals',
+        to: { name: 'Deals' },
+      },
+    ],
+  },
+])
+
+const customViews = computed(() => {
+  let _views = []
   if (getPublicViews().length) {
     _views.push({
       name: 'Public Views',
@@ -334,6 +509,14 @@ function getIcon(routeName, icon) {
       return NoteIcon
     case 'Call Logs':
       return PhoneIcon
+    case 'Tasks':
+    case 'My Task':
+      return TaskIcon
+    case 'Data Imports':
+    case 'Import':
+      return FileSpreadsheetIcon
+    case 'Daily Allocation':
+      return CalendarIcon
     default:
       return PinIcon
   }
@@ -341,7 +524,54 @@ function getIcon(routeName, icon) {
 
 // A saved view's key is its name; a plain nav item's key is its route name.
 function currentRouteKey() {
-  return route.query.view || route.name
+  if (route.query?.view) return route.query.view
+  const routeMap = {
+    Lead: 'Leads',
+    Deal: 'Deals',
+    Contact: 'Contacts',
+    Organization: 'Organizations',
+    DataImport: 'Data Imports',
+    NewDataImport: 'Data Imports',
+  }
+  return routeMap[route.name] || route.name
+}
+
+function ensureActiveSectionOpened() {
+  const currentKey = currentRouteKey()
+  const name = route.name
+
+  const dataKeys = [
+    'Contacts',
+    'Contact',
+    'Organizations',
+    'Organization',
+    'Data Imports',
+    'DataImport',
+    'NewDataImport',
+    'Daily Allocation',
+  ]
+  if (dataKeys.includes(name) || dataKeys.includes(currentKey)) {
+    sectionStates.value = {
+      ...sectionStates.value,
+      Data: true,
+    }
+  }
+
+  const outreachKeys = ['Tasks']
+  if (outreachKeys.includes(name) || outreachKeys.includes(currentKey)) {
+    sectionStates.value = {
+      ...sectionStates.value,
+      Outreach: true,
+    }
+  }
+
+  const salesKeys = ['Leads', 'Lead', 'Deals', 'Deal']
+  if (salesKeys.includes(name) || salesKeys.includes(currentKey)) {
+    sectionStates.value = {
+      ...sectionStates.value,
+      'Sales Pipeline': true,
+    }
+  }
 }
 
 // Set the highlight on click rather than waiting for the route, since route
@@ -369,8 +599,12 @@ function selectItem(event, key) {
 }
 
 watch(
-  () => [route.name, route.query.view],
-  () => (activeItem.value = currentRouteKey()),
+  () => [route.name, route.query?.view],
+  () => {
+    activeItem.value = currentRouteKey()
+    ensureActiveSectionOpened()
+  },
+  { immediate: true },
 )
 
 function onSearchClick() {
