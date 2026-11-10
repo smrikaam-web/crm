@@ -439,11 +439,13 @@ def get_allocated_tasks(
 			"name": str(row.name),
 			"contact": row.contact,
 			"contact_name": row.contact_name or row.contact,
+			"prospect_name": row.contact_name or row.contact,
 			"organization": row.organization or "",
 			"email": row.email or "",
 			"mobile_no": row.mobile_no or "",
 			"country": display_country,
 			"timezone": display_timezone,
+			"raw_timezone": tz_val or "",
 			"allocation_date": str(row.allocation_date),
 			"assigned_to": row.assigned_to,
 			"assigned_to_name": user_names[assigned_id],
@@ -457,6 +459,206 @@ def get_allocated_tasks(
 		})
 
 	return results
+
+
+def sync_contact_daily_allocation(
+	contact_name: str,
+	assigned_to: str,
+	allocated_by: str | None = None,
+	allocation_date: str | None = None,
+	status: str = "To Do",
+) -> Any:
+	"""Automatically create or update the CRM Daily Allocation task when a Contact is assigned.
+
+	Ensures:
+	- No duplicate tasks: if an allocation already exists for this contact, update it.
+	- Reassigning updates the existing task record, sets assigned_to to the new user, and status to 'To Do'.
+	- Resolves organization, email, mobile_no, country, and timezone from the contact.
+	- Sets allocation_date (defaults to today).
+	- Emits realtime socket event so My Tasks and Contacts lists refresh automatically without browser reload.
+	"""
+	if not contact_name or not frappe.db.exists("Contact", contact_name):
+		return None
+
+	contact_doc = frappe.get_doc("Contact", contact_name)
+
+	# 1. Resolve contact details
+	full_name = (
+		contact_doc.full_name
+		or f"{contact_doc.first_name or ''} {contact_doc.last_name or ''}".strip()
+		or contact_name
+	)
+	c_email = (
+		contact_doc.email_id
+		or (contact_doc.email_ids[0].email_id if contact_doc.email_ids else "")
+		or ""
+	)
+	c_phone = (
+		contact_doc.mobile_no
+		or (contact_doc.phone_nos[0].phone if contact_doc.phone_nos else "")
+		or ""
+	)
+
+	# Organization resolution
+	org_name = contact_doc.company_name or ""
+	if not org_name and contact_doc.links:
+		for l in contact_doc.links:
+			if l.link_doctype == "CRM Organization":
+				org_name = l.link_name
+				break
+
+	# Country and Timezone resolution
+	cntry = resolve_country_for_contact(contact_name, org_name)
+	tz = get_timezone_for_country(cntry) if cntry else "Not Available"
+
+	alloc_date = allocation_date or frappe.utils.today()
+	allocator = allocated_by or frappe.session.user or "Administrator"
+
+	# 2. Check existing allocation records for this contact (prevent duplicates!)
+	existing_tasks = frappe.get_all(
+		"CRM Daily Allocation",
+		filters={"contact": contact_name},
+		fields=["name", "assigned_to", "status"],
+		order_by="modified desc",
+	)
+
+	alloc_doc = None
+	if existing_tasks:
+		# Update the primary existing record
+		primary_name = existing_tasks[0]["name"]
+		alloc_doc = frappe.get_doc("CRM Daily Allocation", primary_name)
+		alloc_doc.assigned_to = assigned_to
+		alloc_doc.allocated_by = allocator
+		alloc_doc.allocation_date = alloc_date
+		alloc_doc.status = status or "To Do"
+		alloc_doc.contact_name = full_name
+		alloc_doc.organization = org_name
+		alloc_doc.email = c_email
+		alloc_doc.mobile_no = c_phone
+		alloc_doc.country = cntry or ""
+		alloc_doc.timezone = tz if tz != "Not Available" else ""
+		alloc_doc.flags.ignore_permissions = True
+		alloc_doc.save()
+
+		# Delete any redundant duplicates if they exist in DB
+		if len(existing_tasks) > 1:
+			for redundant in existing_tasks[1:]:
+				frappe.delete_doc(
+					"CRM Daily Allocation", redundant["name"], force=True, ignore_permissions=True
+				)
+	else:
+		# Create new task
+		alloc_doc = frappe.new_doc("CRM Daily Allocation")
+		alloc_doc.assigned_to = assigned_to
+		alloc_doc.allocated_by = allocator
+		alloc_doc.allocation_date = alloc_date
+		alloc_doc.status = status or "To Do"
+		alloc_doc.contact = contact_name
+		alloc_doc.contact_name = full_name
+		alloc_doc.organization = org_name
+		alloc_doc.email = c_email
+		alloc_doc.mobile_no = c_phone
+		alloc_doc.country = cntry or ""
+		alloc_doc.timezone = tz if tz != "Not Available" else ""
+		alloc_doc.flags.ignore_permissions = True
+		alloc_doc.insert()
+
+	# 3. Synchronize Contact._assign so it reflects only this assignee
+	try:
+		frappe.db.set_value(
+			"Contact",
+			contact_name,
+			{
+				"_assign": json.dumps([assigned_to]),
+				"custom_is_dropped": 0,
+			},
+			update_modified=False,
+		)
+	except Exception:
+		pass
+
+	# 4. Publish realtime event for automatic UI update without browser refresh
+	try:
+		payload = {
+			"user": assigned_to,
+			"contact": contact_name,
+			"allocation_date": str(alloc_date),
+			"task_id": alloc_doc.name,
+		}
+		frappe.publish_realtime("crm_tasks_updated", payload, after_commit=True)
+	except Exception:
+		pass
+
+	return alloc_doc
+
+
+def clear_contact_daily_allocation(contact_name: str) -> None:
+	"""Remove allocation tasks when a Contact is unassigned or marked dropped."""
+	if not contact_name:
+		return
+	frappe.db.delete("CRM Daily Allocation", {"contact": contact_name})
+	try:
+		frappe.publish_realtime(
+			"crm_tasks_updated",
+			{"contact": contact_name, "cleared": True},
+			after_commit=True,
+		)
+	except Exception:
+		pass
+
+
+def sync_contact_assignment_to_user(contact_name: str, new_user: str) -> None:
+	"""Synchronize Contact _assign and ToDo records when reassigned."""
+	if not contact_name or not frappe.db.exists("Contact", contact_name):
+		return
+
+	# 1. Update Contact._assign
+	frappe.db.set_value(
+		"Contact",
+		contact_name,
+		{
+			"_assign": json.dumps([new_user]),
+			"custom_is_dropped": 0,
+		},
+		update_modified=False,
+	)
+
+	# 2. Cancel old open ToDos for other users
+	old_todos = frappe.get_all(
+		"ToDo",
+		filters={
+			"reference_type": "Contact",
+			"reference_name": contact_name,
+			"status": "Open",
+			"allocated_to": ["!=", new_user],
+		},
+		pluck="name",
+	)
+	for ot in old_todos:
+		frappe.db.set_value("ToDo", ot, "status", "Cancelled")
+
+	# 3. Ensure an open ToDo exists for new_user
+	existing_todo = frappe.db.get_value(
+		"ToDo",
+		{
+			"reference_type": "Contact",
+			"reference_name": contact_name,
+			"allocated_to": new_user,
+			"status": "Open",
+		},
+		"name",
+	)
+	if not existing_todo:
+		new_todo = frappe.new_doc("ToDo")
+		new_todo.reference_type = "Contact"
+		new_todo.reference_name = contact_name
+		new_todo.allocated_to = new_user
+		new_todo.assigned_by = frappe.session.user
+		new_todo.status = "Open"
+		new_todo.date = frappe.utils.today()
+		new_todo.description = _("Assignment for Contact {0}").format(contact_name)
+		new_todo.flags.ignore_permissions = True
+		new_todo.insert()
 
 
 @frappe.whitelist()
@@ -517,57 +719,21 @@ def allocate_prospects(
 		if not frappe.db.exists("Contact", c_id):
 			continue
 
-		contact_doc = frappe.get_doc("Contact", c_id)
-
-		# Extract email and phone
-		c_email = contact_doc.email_id or (contact_doc.email_ids[0].email_id if contact_doc.email_ids else "") or ""
-		c_phone = contact_doc.mobile_no or (contact_doc.phone_nos[0].phone if contact_doc.phone_nos else "") or ""
-
-		# Extract organization
-		org_name = contact_doc.company_name or ""
-		if not org_name and contact_doc.links:
-			for l in contact_doc.links:
-				if l.link_doctype == "CRM Organization":
-					org_name = l.link_name
-					break
-
-		full_name = contact_doc.full_name or f"{contact_doc.first_name or ''} {contact_doc.last_name or ''}".strip() or c_id
-
-		# Country and Timezone resolution
-		cntry = resolve_country_for_contact(c_id, org_name)
-		tz = get_timezone_for_country(cntry) if cntry else "Not Available"
-
-		alloc_doc = frappe.new_doc("CRM Daily Allocation")
-		alloc_doc.assigned_to = assigned_to
-		alloc_doc.allocated_by = current_admin
-		alloc_doc.allocation_date = alloc_date
-		alloc_doc.contact = c_id
-		alloc_doc.contact_name = full_name
-		alloc_doc.organization = org_name
-		alloc_doc.email = c_email
-		alloc_doc.mobile_no = c_phone
-		alloc_doc.country = cntry or ""
-		alloc_doc.timezone = tz if tz != "Not Available" else ""
-		alloc_doc.status = "To Do"
-		alloc_doc.flags.ignore_permissions = True
-		alloc_doc.insert()
-
-		# Synchronize contact _assign so assigned contacts appear under Assigned tab
-		try:
-			existing_assign = frappe.db.get_value("Contact", c_id, "_assign")
-			assign_list = json.loads(existing_assign) if existing_assign else []
-			if assigned_to not in assign_list:
-				assign_list.append(assigned_to)
-				frappe.db.set_value("Contact", c_id, "_assign", json.dumps(assign_list))
-		except Exception:
-			pass
+		alloc_doc = sync_contact_daily_allocation(
+			contact_name=c_id,
+			assigned_to=assigned_to,
+			allocated_by=current_admin,
+			allocation_date=alloc_date,
+			status="To Do",
+		)
+		sync_contact_assignment_to_user(c_id, assigned_to)
 
 		allocated.append({
 			"name": alloc_doc.name,
 			"contact": c_id,
-			"contact_name": full_name,
-			"country": cntry or "Not Available",
-			"timezone": format_timezone_label(tz, cntry),
+			"contact_name": alloc_doc.contact_name,
+			"country": alloc_doc.country or "Not Available",
+			"timezone": format_timezone_label(alloc_doc.timezone, alloc_doc.country),
 			"assigned_to": assigned_to,
 			"allocation_date": str(alloc_date),
 		})
@@ -656,7 +822,21 @@ def reassign_task(
 
 	doc.flags.ignore_permissions = True
 	doc.save()
+
+	# Synchronize Contact assignment
+	if doc.contact and frappe.db.exists("Contact", doc.contact):
+		sync_contact_assignment_to_user(doc.contact, new_user)
+
 	frappe.db.commit()
+
+	try:
+		frappe.publish_realtime(
+			"crm_tasks_updated",
+			{"user": new_user, "task_id": doc.name, "contact": doc.contact},
+			after_commit=True,
+		)
+	except Exception:
+		pass
 
 	return {"success": True, "name": doc.name, "assigned_to": doc.assigned_to, "allocation_date": str(doc.allocation_date)}
 
@@ -670,8 +850,21 @@ def delete_allocation(task_name: str | int) -> dict[str, Any]:
 	if not frappe.db.exists("CRM Daily Allocation", task_name):
 		frappe.throw(_("Task {0} not found.").format(task_name), frappe.DoesNotExistError)
 
+	contact_name = frappe.db.get_value("CRM Daily Allocation", task_name, "contact")
 	frappe.delete_doc("CRM Daily Allocation", task_name, force=True, ignore_permissions=True)
+	if contact_name and frappe.db.exists("Contact", contact_name):
+		from frappe.desk.form import assign_to
+		try:
+			assign_to.clear("Contact", contact_name, ignore_permissions=True)
+		except Exception:
+			pass
+		frappe.db.set_value("Contact", contact_name, "_assign", None, update_modified=False)
+
 	frappe.db.commit()
+	try:
+		frappe.publish_realtime("crm_tasks_updated", {"cleared": True}, after_commit=True)
+	except Exception:
+		pass
 
 	return {"success": True, "message": _("Allocation removed.")}
 
@@ -1106,9 +1299,20 @@ def bulk_reassign_tasks(
 				doc.allocation_date = new_date
 			doc.flags.ignore_permissions = True
 			doc.save()
+			if doc.contact:
+				sync_contact_assignment_to_user(doc.contact, new_user)
 			updated += 1
 
 	frappe.db.commit()
+	try:
+		frappe.publish_realtime(
+			"crm_tasks_updated",
+			{"user": new_user, "updated": updated},
+			after_commit=True,
+		)
+	except Exception:
+		pass
+
 	return {"success": True, "updated": updated, "message": _("Reassigned {0} task(s) to {1}.").format(updated, new_user)}
 
 
@@ -1127,10 +1331,23 @@ def bulk_clear_task_assignments(tasks: Any) -> dict[str, Any]:
 	cleared = 0
 	for t_id in tasks:
 		if frappe.db.exists("CRM Daily Allocation", t_id):
+			contact_name = frappe.db.get_value("CRM Daily Allocation", t_id, "contact")
 			frappe.delete_doc("CRM Daily Allocation", t_id, force=True, ignore_permissions=True)
+			if contact_name and frappe.db.exists("Contact", contact_name):
+				from frappe.desk.form import assign_to
+				try:
+					assign_to.clear("Contact", contact_name, ignore_permissions=True)
+				except Exception:
+					pass
+				frappe.db.set_value("Contact", contact_name, "_assign", None, update_modified=False)
 			cleared += 1
 
 	frappe.db.commit()
+	try:
+		frappe.publish_realtime("crm_tasks_updated", {"cleared": cleared}, after_commit=True)
+	except Exception:
+		pass
+
 	return {"success": True, "cleared": cleared, "message": _("Cleared assignment for {0} task(s).").format(cleared)}
 
 
@@ -1150,10 +1367,23 @@ def bulk_delete_tasks(tasks: Any) -> dict[str, Any]:
 	deleted = 0
 	for t_id in tasks:
 		if frappe.db.exists("CRM Daily Allocation", t_id):
+			contact_name = frappe.db.get_value("CRM Daily Allocation", t_id, "contact")
 			frappe.delete_doc("CRM Daily Allocation", t_id, force=True, ignore_permissions=True)
+			if contact_name and frappe.db.exists("Contact", contact_name):
+				from frappe.desk.form import assign_to
+				try:
+					assign_to.clear("Contact", contact_name, ignore_permissions=True)
+				except Exception:
+					pass
+				frappe.db.set_value("Contact", contact_name, "_assign", None, update_modified=False)
 			deleted += 1
 
 	frappe.db.commit()
+	try:
+		frappe.publish_realtime("crm_tasks_updated", {"deleted": deleted}, after_commit=True)
+	except Exception:
+		pass
+
 	return {"success": True, "deleted": deleted, "message": _("Deleted {0} task(s).").format(deleted)}
 
 

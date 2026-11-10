@@ -282,6 +282,7 @@ doc_events = {
 		"validate": ["crm.api.todo.validate"],
 		"after_insert": ["crm.api.todo.after_insert"],
 		"on_update": ["crm.api.todo.on_update"],
+		"on_trash": ["crm.api.todo.on_trash"],
 	},
 	"Communication": {
 		"validate": ["crm.api.security.guard_communication_update"],
@@ -477,6 +478,7 @@ after_migrate = [
 	"crm.api.whatsapp.add_roles",
 	"crm.domain_enrichment.install.seed_default_rules_and_mappings",
 	"crm.install.add_default_scripts",
+	"crm.install.add_contact_custom_fields",
 	"crm.install.add_web_form_custom_fields",
 ]
 

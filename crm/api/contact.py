@@ -12,6 +12,35 @@ from crm.api.whatsapp import guard_recipient_change
 
 def validate(doc, method):
 	update_deals_email_mobile_no(doc)
+	sync_allocation_fields_on_contact_update(doc)
+
+
+def sync_allocation_fields_on_contact_update(doc):
+	name = getattr(doc, "name", None)
+	if not name:
+		return
+	if frappe.db.exists("CRM Daily Allocation", {"contact": name}):
+		full_name = doc.full_name or f"{doc.first_name or ''} {doc.last_name or ''}".strip() or name
+		c_email = doc.email_id or (doc.email_ids[0].email_id if getattr(doc, "email_ids", None) else "") or ""
+		c_phone = doc.mobile_no or (doc.phone_nos[0].phone if getattr(doc, "phone_nos", None) else "") or ""
+		org_name = doc.company_name or ""
+		from crm.api.daily_allocation import resolve_country_for_contact, get_timezone_for_country
+		cntry = resolve_country_for_contact(name, org_name)
+		tz = get_timezone_for_country(cntry) if cntry else "Not Available"
+
+		frappe.db.set_value(
+			"CRM Daily Allocation",
+			{"contact": name},
+			{
+				"contact_name": full_name,
+				"organization": org_name,
+				"email": c_email,
+				"mobile_no": c_phone,
+				"country": cntry or "",
+				"timezone": tz if tz != "Not Available" else "",
+			},
+			update_modified=False,
+		)
 
 
 def update_deals_email_mobile_no(doc):
@@ -634,9 +663,20 @@ def send_contact_email(
 	)
 
 
+def ensure_contact_custom_fields():
+	"""Ensure custom_is_dropped column exists in tabContact."""
+	try:
+		if not frappe.db.has_column("Contact", "custom_is_dropped"):
+			from crm.install import add_contact_custom_fields
+			add_contact_custom_fields()
+	except Exception:
+		pass
+
+
 @frappe.whitelist()
 def get_contact_tab_counts() -> dict[str, Any]:
 	"""Dynamic counts for Unassigned, Assigned, Dropped contact tabs."""
+	ensure_contact_custom_fields()
 	user = frappe.session.user
 	from crm.api.security import is_admin_only, get_contact_permission_conditions
 	is_admin = is_admin_only(user)
@@ -711,7 +751,9 @@ def mark_contacts_dropped(names: Any, dropped: int = 1) -> dict[str, Any]:
 	for name in names:
 		if frappe.db.exists("Contact", name):
 			frappe.db.set_value("Contact", name, "custom_is_dropped", dropped_val)
-			if dropped_val == 0:
+			if dropped_val == 1:
+				frappe.db.delete("CRM Daily Allocation", {"contact": name})
+			elif dropped_val == 0:
 				# Restoring to Unassigned: clear any assignments
 				try:
 					from frappe.desk.form import assign_to
@@ -720,6 +762,10 @@ def mark_contacts_dropped(names: Any, dropped: int = 1) -> dict[str, Any]:
 					pass
 
 	frappe.db.commit()
+	try:
+		frappe.publish_realtime("crm_tasks_updated", {"dropped": dropped_val}, after_commit=True)
+	except Exception:
+		pass
 	msg = (
 		_("{0} contact(s) marked as Dropped.").format(len(names))
 		if dropped_val

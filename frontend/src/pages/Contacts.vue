@@ -119,11 +119,14 @@ import { getMeta } from '@/stores/meta'
 import { organizationsStore } from '@/stores/organizations.js'
 import { sessionStore } from '@/stores/session'
 import { usersStore } from '@/stores/users'
+import { globalStore } from '@/stores/global'
 import { formatDate } from '@/utils'
 import { timestampCell } from '@/composables/useTimelinePreferences'
 import { Badge, createResource } from 'frappe-ui'
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
+const { $socket } = globalStore()
 
 const { getFormattedPercent, getFormattedFloat, getFormattedCurrency } =
   getMeta('Contact')
@@ -197,8 +200,22 @@ function fetchTabCounts() {
   tabCountsResource.reload()
 }
 
+function onContactsRealtimeUpdate() {
+  fetchTabCounts()
+  viewControls.value?.reload?.()
+}
+
 onMounted(() => {
   fetchTabCounts()
+  if ($socket) {
+    $socket.on('crm_tasks_updated', onContactsRealtimeUpdate)
+  }
+})
+
+onBeforeUnmount(() => {
+  if ($socket) {
+    $socket.off('crm_tasks_updated', onContactsRealtimeUpdate)
+  }
 })
 
 watch(

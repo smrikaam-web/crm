@@ -146,34 +146,46 @@ async function updateAssignees() {
     )
     .map((assignee) => assignee.name)
 
-  if (removedAssignees.length) {
-    await call('crm.api.doc.remove_assignments', {
-      doctype: props.doctype,
-      name: props.doc.name,
-      assignees: JSON.stringify(removedAssignees),
-    })
-  }
-
-  if (addedAssignees.length) {
-    if (props.docs.size) {
-      capture('bulk_assign_to', { doctype: props.doctype })
-      call('frappe.desk.form.assign_to.add_multiple', {
-        doctype: props.doctype,
-        name: JSON.stringify(Array.from(props.docs)),
-        assign_to: addedAssignees,
-        bulk_assign: true,
-        re_assign: true,
-      }).then(() => {
-        emit('reload')
-      })
-    } else {
-      capture('assign_to', { doctype: props.doctype })
-      call('frappe.desk.form.assign_to.add', {
-        doctype: props.doctype,
-        name: props.doc.name,
-        assign_to: addedAssignees,
-      })
+  try {
+    if (removedAssignees.length) {
+      if (props.docs.size) {
+        await call('frappe.desk.form.assign_to.remove_multiple', {
+          doctype: props.doctype,
+          names: JSON.stringify(Array.from(props.docs)),
+          ignore_permissions: true,
+        })
+      } else if (props.doc?.name) {
+        await call('crm.api.doc.remove_assignments', {
+          doctype: props.doctype,
+          name: props.doc.name,
+          assignees: JSON.stringify(removedAssignees),
+        })
+      }
     }
+
+    if (addedAssignees.length) {
+      if (props.docs.size) {
+        capture('bulk_assign_to', { doctype: props.doctype })
+        await call('frappe.desk.form.assign_to.add_multiple', {
+          doctype: props.doctype,
+          name: JSON.stringify(Array.from(props.docs)),
+          assign_to: addedAssignees,
+          bulk_assign: true,
+          re_assign: true,
+        })
+      } else if (props.doc?.name) {
+        capture('assign_to', { doctype: props.doctype })
+        await call('frappe.desk.form.assign_to.add', {
+          doctype: props.doctype,
+          name: props.doc.name,
+          assign_to: addedAssignees,
+        })
+      }
+    }
+    emit('reload')
+  } catch (err) {
+    error.value = err.message || __('Failed to update assignments')
+    return
   }
   show.value = false
 }

@@ -645,6 +645,13 @@ def execute_bulk_import(
 	rows_data = _get_rows(file_token, rows)
 	mapping = _normalize_mapping(column_mapping)
 
+	# Ensure custom fields exist on Contact
+	try:
+		from crm.api.contact import ensure_contact_custom_fields
+		ensure_contact_custom_fields()
+	except Exception:
+		pass
+
 	imported = 0
 	skipped = 0
 	errors = []
@@ -700,6 +707,11 @@ def execute_bulk_import(
 					contact_cache=contact_cache,
 				)
 
+			# Ensure contact was created if person info was provided
+			if (first_name or last_name or email or mobile_no) and not contact_name:
+				display_name = f"{first_name} {last_name}".strip() or org_val or email or f"Row {row_idx}"
+				raise ValueError(f"Failed to create Contact for {display_name}")
+
 			# 3. Address (optional): linked to Organization and Contact
 			_get_or_create_address(
 				org_name=org_name,
@@ -733,6 +745,12 @@ def execute_bulk_import(
 			})
 
 	frappe.db.commit()
+
+	# Emit realtime update so open frontend tabs (Contacts, My Tasks, Orgs) refresh immediately
+	try:
+		frappe.publish_realtime("crm_tasks_updated", {"imported": imported}, after_commit=True)
+	except Exception:
+		pass
 
 	return {
 		"success": len(errors) == 0,

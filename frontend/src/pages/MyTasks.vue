@@ -679,14 +679,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watchEffect, onMounted } from 'vue'
+import { ref, reactive, computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
 import { call, Button, Dialog, Badge, Dropdown, toast } from 'frappe-ui'
 import { globalStore } from '@/stores/global'
 import TaskIcon from '@/components/Icons/TaskIcon.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import BulkEmailModal from '@/components/Modals/BulkEmailModal.vue'
 
-const { $dialog } = globalStore()
+const { $dialog, $socket } = globalStore()
 
 const todayStr = new Date().toLocaleDateString('en-CA')
 const loading = ref(false)
@@ -1257,7 +1257,20 @@ async function submitEdit() {
   }
 }
 
+function onTasksRealtimeUpdate() {
+  fetchTasks()
+}
+
 onMounted(() => {
   fetchTasks()
+  if ($socket) {
+    $socket.on('crm_tasks_updated', onTasksRealtimeUpdate)
+  }
+})
+
+onBeforeUnmount(() => {
+  if ($socket) {
+    $socket.off('crm_tasks_updated', onTasksRealtimeUpdate)
+  }
 })
 </script>

@@ -12,5 +12,5 @@ class CRMDailyAllocation(Document):
 		if not self.allocation_date:
 			self.allocation_date = frappe.utils.today()
 		if not self.status:
-			self.status = "Pending"
+			self.status = "To Do"
 
