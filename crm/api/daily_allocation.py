@@ -1515,7 +1515,10 @@ def is_branded_template(html: str) -> bool:
 
 
 def get_clean_user_signature(user_email: str | None = None) -> str:
-	"""Retrieve sender's configured HTML signature and unescape rich-text Quill formatting if present."""
+	"""Retrieve sender's configured HTML signature, safely isolating the signature table and removing raw HTML, code blocks, or comments."""
+	import html
+	from bs4 import BeautifulSoup
+
 	if not user_email:
 		user_email = frappe.session.user
 
@@ -1533,8 +1536,6 @@ def get_clean_user_signature(user_email: str | None = None) -> str:
 	if not raw_sig:
 		return ""
 
-	from bs4 import BeautifulSoup
-
 	soup = BeautifulSoup(raw_sig, "html.parser")
 	code_blocks = soup.find_all("div", class_="ql-code-block")
 	if code_blocks:
@@ -1548,19 +1549,43 @@ def get_clean_user_signature(user_email: str | None = None) -> str:
 
 	extracted = extracted.replace("\xa0", " ").strip()
 
-	# If the signature is wrapped in a full HTML document, extract style and body content
-	if "<!doctype" in extracted.lower() or "<html" in extracted.lower():
-		try:
-			sig_soup = BeautifulSoup(extracted, "html.parser")
-			style_tag = str(sig_soup.find("style")) if sig_soup.find("style") else ""
-			body_tag = sig_soup.find("body")
-			if body_tag:
-				body_content = "".join([str(c) for c in body_tag.children if c.name])
-				return f"{style_tag}\n{body_content}".strip()
-		except Exception:
-			pass
+	# If raw HTML tags were saved as escaped entities (&lt;table...)
+	if "&lt;table" in extracted.lower() and "<table" not in extracted.lower():
+		extracted = html.unescape(extracted)
 
-	return extracted
+	sig_soup = BeautifulSoup(extracted, "html.parser")
+
+	# Target the exact signature table (avoiding outer containers, comments, pre blocks, or trailing raw code)
+	target_table = (
+		sig_soup.find("table", class_="signature-shell")
+		or sig_soup.find("table", width="900")
+		or sig_soup.find("table", style=lambda s: s and ("900px" in s or "max-width" in s))
+		or sig_soup.find("table")
+	)
+
+	if target_table:
+		style_tag = ""
+		found_style = sig_soup.find("style")
+		if found_style and ".signature-shell" in str(found_style):
+			css_text = found_style.get_text()
+			media_queries = re.findall(r"@media[^{]+\{(?:[^{}]*\{[^{}]*\})*[\s\r\n]*\}", css_text, re.DOTALL)
+			if media_queries:
+				style_tag = f"<style>{''.join(media_queries)}</style>"
+
+		table_str = str(target_table)
+		# Normalize whitespace between tags to prevent inter-tag newline expansion in email clients/editors
+		table_str = re.sub(r">\s*\n\s*<", "><", table_str)
+		return f"{style_tag}{table_str}".strip()
+
+	# Plain text signature without tables
+	if not any(token in extracted.lower() for token in ["<table", "&lt;table", "<div class=\"ql-code-block\"", "<!doctype"]):
+		clean_text = sig_soup.get_text().strip()
+		if clean_text:
+			return f"<p>{clean_text.replace(chr(10), '<br>')}</p>"
+
+	# Valid signature table could not be safely extracted from raw markup: do not leak raw source code
+	frappe.logger("crm").warning(f"Could not extract a valid clean email signature for user {user_email}")
+	return ""
 
 
 def append_signature_to_email_content(content: str, signature_html: str) -> str:
