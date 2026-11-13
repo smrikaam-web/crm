@@ -291,6 +291,6 @@ const deleteDoc = async () => {
   toast.success(__('{0} deleted successfully', [label]))
   show.value = false
   router.push({ name: props.name })
-  props?.reload?.()
+  props?.reload?.([props.docname])
 }
 </script>

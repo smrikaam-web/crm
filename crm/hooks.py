@@ -58,7 +58,9 @@ doctype_js = {
 	"CRM Organization": "public/js/domain_enrichment.js",
 	"CRM Deal": "public/js/domain_enrichment.js",
 }
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {
+	"Email Queue": "public/js/email_queue_list.js",
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 

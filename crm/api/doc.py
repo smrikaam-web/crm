@@ -856,7 +856,7 @@ def delete_bulk_docs(doctype: str, items: str | list, delete_linked: bool = Fals
 		except Exception as e:
 			frappe.log_error(f"Error processing linked docs for {doctype} {doc}: {e!s}", "Bulk Delete Error")
 
-	if len(items) > 10:
+	if len(items) > 100:
 		frappe.enqueue("frappe.desk.reportview.delete_bulk", doctype=doctype, items=items)
 	else:
 		delete_bulk(doctype, items)

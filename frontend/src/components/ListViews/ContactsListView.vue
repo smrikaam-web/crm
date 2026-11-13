@@ -212,7 +212,7 @@
     v-model="list"
     doctype="Contact"
     :currentTab="currentTab"
-    @reload="emit('reload')"
+    @reload="emit('reload', $event)"
   />
 </template>
 <script setup>

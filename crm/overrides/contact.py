@@ -99,3 +99,42 @@ class CustomContact(Contact):
 			"custom_is_dropped",
 		]
 		return {"columns": columns, "rows": rows}
+
+	@staticmethod
+	def parse_list_data(data):
+		"""Enrich contact list data with resolved Country and Timezone matching My Tasks."""
+		if not data:
+			return data
+
+		from crm.api.daily_allocation import (
+			resolve_country_for_contact,
+			get_timezone_for_country,
+			format_timezone_label,
+		)
+
+		for row in data:
+			c_name = row.get("name")
+			org_name = row.get("company_name")
+
+			# 1. Country resolution (matching My Tasks)
+			c_val = row.get("custom_country") or row.get("country")
+			if not c_val or c_val == "Not Available" or c_val == "—":
+				c_val = resolve_country_for_contact(c_name, org_name)
+			display_country = c_val if c_val and c_val != "Not Available" else "—"
+
+			# 2. Timezone resolution (matching My Tasks)
+			tz_val = row.get("custom_timezone") or row.get("timezone")
+			if not tz_val or tz_val == "Not Available" or tz_val == "—":
+				tz_val = get_timezone_for_country(c_val) if (c_val and c_val != "—" and c_val != "Not Available") else "Not Available"
+			display_timezone = (
+				format_timezone_label(tz_val, c_val)
+				if (tz_val and tz_val != "Not Available")
+				else "—"
+			)
+
+			row["custom_country"] = display_country
+			row["country"] = display_country
+			row["custom_timezone"] = display_timezone
+			row["timezone"] = display_timezone
+
+		return data

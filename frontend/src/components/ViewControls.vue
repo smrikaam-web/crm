@@ -1754,6 +1754,7 @@ defineExpose({
   applyFilter,
   applyLikeFilter,
   likeDoc,
+  reload,
   updateKanbanSettings,
   fetchAndUpdateKanbanColumns,
   loadMoreKanban,

@@ -70,7 +70,7 @@
       rowCount: organizations.data.row_count,
       totalCount: organizations.data.total_count,
     }"
-    @reload="fetchTabCounts"
+    @reload="onListReload"
     @loadMore="() => loadMore++"
     @columnWidthUpdated="() => triggerResize++"
     @updatePageCount="(count) => (updatedPageCount = count)"
@@ -161,6 +161,11 @@ const tabCountsResource = createResource({
 
 function fetchTabCounts() {
   tabCountsResource.reload()
+}
+
+function onListReload() {
+  fetchTabCounts()
+  viewControls.value?.reload?.()
 }
 
 onMounted(() => {

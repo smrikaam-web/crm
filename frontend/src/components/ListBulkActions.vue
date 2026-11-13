@@ -12,21 +12,21 @@
     v-model:assignees="bulkAssignees"
     :docs="selectedValues"
     :doctype="doctype"
-    @reload="reload"
+    @reload="(docs) => reload(docs)"
   />
   <DeleteLinkedDocModal
     v-if="showDeleteDocModal.showLinkedDocsModal"
     v-model="showDeleteDocModal.showLinkedDocsModal"
     :doctype="props.doctype"
     :docname="showDeleteDocModal.docname"
-    :reload="reload"
+    :reload="(docs) => reload(docs)"
   />
   <BulkDeleteLinkedDocModal
     v-if="showDeleteDocModal.showDeleteModal"
     v-model="showDeleteDocModal.showDeleteModal"
     :doctype="props.doctype"
     :items="showDeleteDocModal.items"
-    :reload="reload"
+    :reload="(docs) => reload(docs)"
   />
   <BulkEmailModal
     v-if="showBulkEmailModal"
@@ -372,7 +372,12 @@ function bulkActions(selections, unselectAll) {
   return actions
 }
 
-function reload(unselectAll) {
+function reload(affectedItems, unselectAll) {
+  if (typeof affectedItems === 'function') {
+    unselectAll = affectedItems
+    affectedItems = null
+  }
+
   showDeleteDocModal.value = {
     showLinkedDocsModal: false,
     showDeleteModal: false,
@@ -380,9 +385,35 @@ function reload(unselectAll) {
   }
 
   unselectAllAction.value?.()
-  unselectAll?.()
+  if (typeof unselectAll === 'function') {
+    unselectAll()
+  }
+
+  // Optimistic UI update: immediately remove affected (deleted/assigned) records from the list
+  if (
+    affectedItems &&
+    Array.isArray(affectedItems) &&
+    affectedItems.length &&
+    list.value?.data?.data &&
+    Array.isArray(list.value.data.data)
+  ) {
+    const itemSet = new Set(affectedItems)
+    list.value.data.data = list.value.data.data.filter(
+      (item) => !itemSet.has(item.name),
+    )
+    if (typeof list.value.data.total_count === 'number') {
+      list.value.data.total_count = Math.max(
+        0,
+        list.value.data.total_count - itemSet.size,
+      )
+    }
+    if (typeof list.value.data.row_count === 'number') {
+      list.value.data.row_count = list.value.data.data.length
+    }
+  }
+
   list.value?.reload()
-  emit('reload')
+  emit('reload', affectedItems)
 }
 
 onMounted(async () => {

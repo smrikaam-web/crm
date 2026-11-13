@@ -158,6 +158,7 @@
     :options="{
       hideAssign: true,
     }"
+    @reload="emit('reload', $event)"
   />
 </template>
 <script setup>

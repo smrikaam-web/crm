@@ -336,6 +336,8 @@ def preview_import(
 	"""Validate mappings, calculate summary metrics and preview mapped rows."""
 	rows_data = _get_rows(file_token, rows)
 	mapping = _normalize_mapping(column_mapping)
+	if not mapping and rows_data and isinstance(rows_data[0], dict):
+		mapping = _suggest_mappings(list(rows_data[0].keys()))
 
 	total_rows = len(rows_data)
 	valid_rows = []
@@ -480,6 +482,7 @@ def _get_or_create_contact(
 	designation: str | None = None,
 	status: str | None = None,
 	contact_cache: dict[str, str] | None = None,
+	country: str | None = None,
 ) -> str:
 	"""Find existing Contact by email/mobile or create new Contact linked to Organization."""
 	contact_name = None
@@ -531,6 +534,17 @@ def _get_or_create_contact(
 			contact_doc.company_name = org_name
 			changed = True
 
+		if country:
+			from crm.api.daily_allocation import get_timezone_for_country, format_timezone_label
+			if not getattr(contact_doc, "custom_country", None):
+				contact_doc.custom_country = country
+				changed = True
+			if not getattr(contact_doc, "custom_timezone", None):
+				tz = get_timezone_for_country(country)
+				if tz != "Not Available":
+					contact_doc.custom_timezone = format_timezone_label(tz, country)
+					changed = True
+
 		if org_name:
 			has_link = any(
 				l.link_doctype == "CRM Organization" and l.link_name == org_name
@@ -579,6 +593,12 @@ def _get_or_create_contact(
 	if designation:
 		contact_doc.designation = designation
 	contact_doc.custom_is_dropped = 0
+	if country:
+		from crm.api.daily_allocation import get_timezone_for_country, format_timezone_label
+		contact_doc.custom_country = country
+		tz = get_timezone_for_country(country)
+		if tz != "Not Available":
+			contact_doc.custom_timezone = format_timezone_label(tz, country)
 	if org_name:
 		contact_doc.company_name = org_name
 		contact_doc.append("links", {"link_doctype": "CRM Organization", "link_name": org_name})
@@ -661,10 +681,29 @@ def execute_bulk_import(
 	file_token: str | None = None,
 	rows: Any = None,
 	column_mapping: Any = None,
+	assignee: str | None = None,
 ) -> dict[str, Any]:
 	"""Execute row-by-row import creating Contacts and Organizations (NO Leads) with deduplication."""
 	rows_data = _get_rows(file_token, rows)
 	mapping = _normalize_mapping(column_mapping)
+	if not mapping and rows_data and isinstance(rows_data[0], dict):
+		mapping = _suggest_mappings(list(rows_data[0].keys()))
+
+	current_user = frappe.session.user
+	from crm.api.daily_allocation import is_admin_user
+	is_admin = is_admin_user(current_user)
+
+	# Role-based assignment:
+	# - Admin imports: NEVER auto-assign to Admin. Records remain unassigned
+	#   unless Admin explicitly specified another target assignee.
+	# - Regular user imports: ALWAYS auto-assign to the importing regular user.
+	assignee_user = None
+	if is_admin:
+		if assignee and frappe.db.exists("User", assignee):
+			assignee_user = assignee
+	else:
+		if current_user and current_user != "Guest":
+			assignee_user = current_user
 
 	# Ensure custom fields exist on Contact
 	try:
@@ -728,6 +767,7 @@ def execute_bulk_import(
 					designation=designation,
 					status=status_val,
 					contact_cache=contact_cache,
+					country=country,
 				)
 
 			# Ensure contact was created if person info was provided
@@ -745,6 +785,27 @@ def execute_bulk_import(
 				state=state,
 				country=country,
 			)
+
+			# 4. Auto-assign imported contact to importing user (or specified assignee if admin)
+			if contact_name and assignee_user and assignee_user != "Guest":
+				try:
+					from frappe.desk.form import assign_to
+					curr_assignees = frappe.parse_json(
+						frappe.db.get_value("Contact", contact_name, "_assign") or "[]"
+					)
+					if assignee_user not in curr_assignees:
+						assign_to.add({
+							"doctype": "Contact",
+							"name": contact_name,
+							"assign_to": [assignee_user],
+							"bulk_assign": True,
+							"re_assign": True,
+						})
+				except Exception as assign_err:
+					frappe.log_error(
+						title="Import Auto-Assign Error",
+						message=f"Failed to assign {contact_name} to {assignee_user}: {assign_err}",
+					)
 
 			# DO NOT CREATE ANY CRM LEAD RECORDS DURING BULK IMPORT
 			display_name = f"{first_name} {last_name}".strip() or org_val or email or f"Row {row_idx}"
@@ -817,6 +878,23 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 	raw_status = _clean_str(data.get("status"))
 	status_val = raw_status if raw_status in valid_statuses else "New"
 
+	assignee = _clean_str(data.get("assignee"))
+	current_user = frappe.session.user
+	from crm.api.daily_allocation import is_admin_user
+	is_admin = is_admin_user(current_user)
+
+	# Role-based assignment:
+	# - Admin imports: NEVER auto-assign to Admin. Records remain unassigned
+	#   unless Admin explicitly specified another target assignee.
+	# - Regular user imports: ALWAYS auto-assign to the importing regular user.
+	assignee_user = None
+	if is_admin:
+		if assignee and frappe.db.exists("User", assignee):
+			assignee_user = assignee
+	else:
+		if current_user and current_user != "Guest":
+			assignee_user = current_user
+
 	if not (first_name or org_val or email):
 		frappe.throw(_("At least a First Name, Organization Name, or Email is required."))
 
@@ -832,6 +910,7 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 			mobile_no=mobile_no,
 			org_name=org_name,
 			designation=designation,
+			country=country,
 		)
 
 		# 3. Address (optional) - NO CRM Leads are created during import
@@ -845,12 +924,40 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 			country=country,
 		)
 
+		# 4. Auto-assign imported contact to importing user (or specified assignee if admin)
+		if contact_name and assignee_user and assignee_user != "Guest":
+			try:
+				from frappe.desk.form import assign_to
+				curr_assignees = frappe.parse_json(
+					frappe.db.get_value("Contact", contact_name, "_assign") or "[]"
+				)
+				if assignee_user not in curr_assignees:
+					assign_to.add({
+						"doctype": "Contact",
+						"name": contact_name,
+						"assign_to": [assignee_user],
+						"bulk_assign": True,
+						"re_assign": True,
+					})
+			except Exception as assign_err:
+				frappe.log_error(
+					title="Single Import Auto-Assign Error",
+					message=f"Failed to assign {contact_name} to {assignee_user}: {assign_err}",
+				)
+
 		frappe.db.commit()
+
+		# Emit realtime update so open frontend tabs (Contacts, My Tasks, Orgs) refresh immediately
+		try:
+			frappe.publish_realtime("crm_tasks_updated", {"imported": 1}, after_commit=True)
+		except Exception:
+			pass
 
 		return {
 			"success": True,
 			"contact": contact_name,
 			"organization": org_name,
+			"assigned_to": assignee_user,
 		}
 	except Exception as e:
 		frappe.db.rollback()

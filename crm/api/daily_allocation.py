@@ -170,6 +170,15 @@ def resolve_country_for_contact(contact_name: str, org_name: str | None = None) 
 		if country_res and country_res[0][0]:
 			return country_res[0][0]
 
+	# 3. CRM Daily Allocation linked to Contact
+	alloc_country = frappe.db.get_value(
+		"CRM Daily Allocation",
+		{"contact": contact_name, "country": ["is", "set"]},
+		"country",
+	)
+	if alloc_country and alloc_country != "Not Available":
+		return alloc_country
+
 	return None
 
 
@@ -2316,3 +2325,149 @@ def send_bulk_email(
 	}
 
 
+@frappe.whitelist()
+def bulk_send_email_queue(names: list[str] | str, force_send: bool = False) -> dict[str, Any]:
+	"""Bulk send selected Email Queue records using Frappe's native EmailQueue sending mechanism.
+
+	- Only processes user-selected records.
+	- Validates permissions (write on Email Queue or CRM Admin/Manager).
+	- Filters for eligible statuses ('Not Sent', 'Partially Sent', or 'Error' if force_send).
+	- Skips records already 'Sending' or 'Sent'.
+	- Atomically updates status to 'Sending' to avoid concurrent double-sends.
+	- Dispatches through native EmailQueue.send(force_send=True).
+	- Returns detailed counts: total, eligible, sent, failed, skipped.
+	"""
+	from frappe.email.doctype.email_queue.email_queue import EmailQueue
+
+	if not names:
+		frappe.throw(_("No Email Queue records selected."))
+
+	if isinstance(names, str):
+		try:
+			parsed = frappe.parse_json(names)
+			if isinstance(parsed, (list, tuple, str, dict)):
+				names = parsed
+			else:
+				names = [names]
+		except Exception:
+			names = [names]
+
+	if isinstance(names, (str, dict)):
+		names = [names]
+
+	if not isinstance(names, (list, tuple)):
+		frappe.throw(_("Invalid Email Queue selection."))
+
+	# Normalize list elements to clean, non-empty string IDs (handles strings, row dicts, etc.)
+	clean_names: list[str] = []
+	for item in names:
+		val = None
+		if isinstance(item, dict):
+			val = item.get("name") or item.get("id")
+		elif isinstance(item, str):
+			val = item.strip()
+		elif item is not None:
+			val = str(item).strip()
+
+		if val and isinstance(val, str) and val.strip():
+			clean_names.append(val.strip())
+
+	# Deduplicate while preserving order
+	clean_names = list(dict.fromkeys(clean_names))
+
+	if not clean_names:
+		frappe.throw(_("No valid Email Queue record names found in selection."))
+
+	# Permission check
+	user = frappe.session.user
+	if user != "Administrator" and not frappe.has_permission("Email Queue", "write"):
+		user_roles = set(frappe.get_roles(user))
+		if not user_roles.intersection({"System Manager", "Sales Manager", "CRM Manager"}):
+			frappe.throw(_("Permission denied to send Email Queue."), frappe.PermissionError)
+
+	records = frappe.get_all(
+		"Email Queue",
+		filters={"name": ["in", clean_names]},
+		fields=["name", "status", "sender"],
+	)
+
+	sent_list = []
+	failed_list = []
+	skipped_list = []
+
+	for r in records:
+		q_name = r.name
+		st = r.status
+
+		# 1. Skip if already sent or currently being processed
+		if st == "Sent":
+			skipped_list.append({"name": q_name, "reason": "Already sent"})
+			continue
+		if st == "Sending":
+			skipped_list.append({"name": q_name, "reason": "Already being processed"})
+			continue
+		if st == "Error" and not force_send:
+			skipped_list.append({"name": q_name, "reason": "Previous Error (retry not forced)"})
+			continue
+
+		# 2. Status must be eligible ('Not Sent', 'Partially Sent', or 'Error' when forced)
+		if st not in ("Not Sent", "Partially Sent", "Error"):
+			skipped_list.append({"name": q_name, "reason": f"Status '{st}' not eligible for sending"})
+			continue
+
+		# 3. Process via Frappe native EmailQueue.send
+		try:
+			queue_doc = EmailQueue.find(q_name)
+			if not queue_doc:
+				skipped_list.append({"name": q_name, "reason": "Document not found"})
+				continue
+
+			# Atomically update to Sending to prevent race conditions
+			frappe.db.set_value("Email Queue", q_name, "status", "Sending", update_modified=False)
+			frappe.db.commit()
+
+			# Send with transient connection retry and pacing
+			for attempt in range(2):
+				try:
+					queue_doc.send(force_send=True)
+					break
+				except Exception as send_err:
+					if attempt == 0 and ("connection" in str(send_err).lower() or "socket" in str(send_err).lower()):
+						import time
+						time.sleep(1)
+						continue
+					raise send_err
+
+			frappe.db.commit()
+
+			final_status = frappe.db.get_value("Email Queue", q_name, "status")
+			if final_status == "Sent":
+				sent_list.append(q_name)
+			elif final_status == "Error":
+				failed_list.append({"name": q_name, "error": "SMTP send failed, marked as Error"})
+			else:
+				sent_list.append(q_name)
+
+			# Gentle pacing to avoid SMTP rate limiting on bulk sends
+			import time
+			time.sleep(0.3)
+
+		except Exception as e:
+			frappe.db.rollback()
+			frappe.log_error(title=f"Bulk Send Email Queue Error {q_name}", message=frappe.get_traceback())
+			frappe.db.set_value("Email Queue", q_name, "status", "Error", update_modified=False)
+			frappe.db.commit()
+			failed_list.append({"name": q_name, "error": str(e)})
+
+	return {
+		"total_selected": len(clean_names),
+		"eligible": len(sent_list) + len(failed_list),
+		"sent": len(sent_list),
+		"failed": len(failed_list),
+		"skipped": len(skipped_list),
+		"details": {
+			"sent": sent_list,
+			"failed": failed_list,
+			"skipped": skipped_list,
+		},
+	}

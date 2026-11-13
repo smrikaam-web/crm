@@ -1,7 +1,7 @@
 <template>
   <Dialog v-model:open="show" :size="'xl'" bare>
     <template #default>
-      <div class="bg-surface-elevation-2 px-4 pb-6 pt-5 sm:px-6">
+      <div v-if="!confirmDeleteInfo.show" class="bg-surface-elevation-2 px-4 pb-6 pt-5 sm:px-6">
         <div class="mb-6 flex items-center justify-between">
           <div>
             <Dialog.Title as-child>
@@ -30,7 +30,7 @@
           </div>
         </div>
       </div>
-      <div class="px-4 pb-7 pt-0 sm:px-6">
+      <div v-if="!confirmDeleteInfo.show" class="px-4 pb-7 pt-0 sm:px-6">
         <div class="flex flex-row-reverse gap-2">
           <Button
             :label="__('Delete {0} items', [props.items.length])"
@@ -145,9 +145,14 @@ const confirmUnlink = () => {
   }
 }
 
+const isDeleting = ref(false)
+
 const deleteDocs = () => {
+  if (isDeleting.value) return
+  isDeleting.value = true
+  const itemsToDelete = [...props.items]
   call('crm.api.doc.delete_bulk_docs', {
-    items: props.items,
+    items: itemsToDelete,
     doctype: props.doctype,
     delete_linked: confirmDeleteInfo.value.delete,
   }).then(() => {
@@ -156,7 +161,9 @@ const deleteDocs = () => {
       title: '',
     }
     show.value = false
-    props.reload()
+    props.reload(itemsToDelete)
+  }).finally(() => {
+    isDeleting.value = false
   })
 }
 </script>

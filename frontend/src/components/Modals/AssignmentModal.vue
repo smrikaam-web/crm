@@ -154,25 +154,31 @@ async function updateAssignees() {
     })
   }
 
+  const affectedNames = props.docs?.size
+    ? Array.from(props.docs)
+    : props.doc?.name
+      ? [props.doc.name]
+      : []
+
   if (addedAssignees.length) {
     if (props.docs.size) {
       capture('bulk_assign_to', { doctype: props.doctype })
-      call('frappe.desk.form.assign_to.add_multiple', {
+      await call('frappe.desk.form.assign_to.add_multiple', {
         doctype: props.doctype,
         name: JSON.stringify(Array.from(props.docs)),
         assign_to: addedAssignees,
         bulk_assign: true,
         re_assign: true,
-      }).then(() => {
-        emit('reload')
       })
+      emit('reload', affectedNames)
     } else {
       capture('assign_to', { doctype: props.doctype })
-      call('frappe.desk.form.assign_to.add', {
+      await call('frappe.desk.form.assign_to.add', {
         doctype: props.doctype,
         name: props.doc.name,
         assign_to: addedAssignees,
       })
+      emit('reload', affectedNames)
     }
   }
   show.value = false
