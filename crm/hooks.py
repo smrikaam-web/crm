@@ -283,7 +283,10 @@ doc_events = {
 		"on_trash": ["crm.api.todo.on_trash"],
 	},
 	"Communication": {
-		"validate": ["crm.api.security.guard_communication_update"],
+		"validate": [
+			"crm.api.security.guard_communication_update",
+			"crm.api.daily_allocation.clean_outgoing_communication",
+		],
 		"after_insert": [
 			"crm.utils.on_communication_insert",
 			"crm.automation.events.on_communication",

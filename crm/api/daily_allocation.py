@@ -1593,10 +1593,6 @@ def append_signature_to_email_content(content: str, signature_html: str) -> str:
 	if not content or not signature_html:
 		return content
 
-	# Avoid duplicate insertion
-	if "signature-shell" in content or (signature_html and signature_html[:60] in content):
-		return content
-
 	# If this is a branded template layout containing a placeholder signature block
 	sig_placeholder_pattern = re.compile(
 		r"<!-- SIGNATURE AND CTA -->.*?(?=<!-- FOOTER -->)",
@@ -1611,8 +1607,44 @@ def append_signature_to_email_content(content: str, signature_html: str) -> str:
 		)
 		return sig_placeholder_pattern.sub(replacement, content)
 
+	# Avoid duplicate insertion
+	if (
+		"signature-shell" in content
+		or "<!-- SIGNATURE -->" in content
+		or "#050505" in content
+		or (signature_html and signature_html[:60] in content)
+		or (signature_html and signature_html[-60:] in content)
+	):
+		return content
+
 	# Non-branded email: append immediately below content
 	return f"{content}<br><br>{signature_html}"
+
+
+def clean_outgoing_communication(doc, method=None):
+	"""Lifecycle hook on Communication validate:
+	1. For outgoing CRM emails, ensure Frappe Core never re-appends raw Quill code block signature.
+	2. Safeguard: if any raw Quill code block or escaped source code exists in content, strip it.
+	"""
+	if getattr(doc, "sent_or_received", "") == "Sent":
+		is_crm_doc = getattr(doc, "reference_doctype", "") in [
+			"Contact", "CRM Lead", "CRM Organization", "CRM Deal", "CRM Daily Allocation"
+		]
+		has_banner = doc.content and (
+			"SMRIKAAM TECHNOLOGIES" in doc.content or "signature-shell" in doc.content or "#050505" in doc.content
+		)
+		if is_crm_doc or has_banner:
+			doc.flags.skip_add_signature = True
+
+		if doc.content and ("ql-code-block" in doc.content or "ql-code-block-container" in doc.content):
+			from bs4 import BeautifulSoup
+			soup = BeautifulSoup(doc.content, "html.parser")
+			for tag in soup.find_all(["pre", "div"], class_=lambda c: c and ("ql-code-block" in c or "ql-code-block-container" in c)):
+				tag.decompose()
+			for sig_p in soup.find_all("p", class_="signature"):
+				if not sig_p.get_text().strip() or not sig_p.find_all("table"):
+					sig_p.decompose()
+			doc.content = str(soup).strip()
 
 
 def get_branded_template_shell(template_name: str = "Demo"):
@@ -1947,6 +1979,7 @@ def send_task_email(
 	comm.reference_name = contact_name
 	comm.delivery_status = "Sending"
 	comm.flags.ignore_permissions = True
+	comm.flags.skip_add_signature = True
 	comm.insert()
 
 	# Process attachments if supplied
@@ -2260,6 +2293,7 @@ def send_bulk_email(
 			comm.reference_name = contact_name or lead_name or item
 			comm.delivery_status = "Sending"
 			comm.flags.ignore_permissions = True
+			comm.flags.skip_add_signature = True
 			comm.insert()
 
 			comm.send_email(now=False)
