@@ -89,16 +89,6 @@
           <div
             v-if="['modified', 'creation', 'data_age'].includes(column.key) && item && item.timeAgo"
             class="truncate text-base"
-            @click="
-              (event) =>
-                emit('applyFilter', {
-                  event,
-                  idx,
-                  column,
-                  item,
-                  firstColumn: columns[0],
-                })
-            "
           >
             <Tooltip :text="item.label">
               <div>{{ item.timeAgo }}</div>
@@ -131,31 +121,11 @@
             class="!opacity-100 flex-nowrap overflow-auto"
             :disabled="true"
             :max="column.options || 5"
-            @click="
-              (event) =>
-                emit('applyFilter', {
-                  event,
-                  idx,
-                  column,
-                  item,
-                  firstColumn: columns[0],
-                })
-            "
           />
           <!-- Name + Organization underneath -->
           <div
             v-else-if="column.key === 'full_name'"
             class="flex flex-col min-w-0 py-0.5"
-            @click="
-              (event) =>
-                emit('applyFilter', {
-                  event,
-                  idx,
-                  column,
-                  item,
-                  firstColumn: columns[0],
-                })
-            "
           >
             <span class="truncate font-semibold text-ink-gray-9 dark:text-ink-white">
               {{ item?.label || '—' }}
@@ -170,16 +140,6 @@
           <div
             v-else-if="label || (typeof item === 'string' && item)"
             class="truncate text-base"
-            @click="
-              (event) =>
-                emit('applyFilter', {
-                  event,
-                  idx,
-                  column,
-                  item,
-                  firstColumn: columns[0],
-                })
-            "
           >
             {{ getLabel(label || item, column) }}
           </div>

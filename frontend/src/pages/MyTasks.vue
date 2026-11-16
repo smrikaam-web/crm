@@ -172,16 +172,18 @@
               <tr
                 v-for="task in filteredTasks"
                 :key="task.name"
-                class="transition-colors hover:bg-surface-gray-1/60 dark:hover:bg-surface-gray-8/50"
+                class="cursor-pointer transition-colors hover:bg-surface-gray-2/70 dark:hover:bg-surface-gray-8/70"
                 :class="{ 'bg-surface-gray-1/40 dark:bg-surface-gray-8/30': selectedTaskIds.includes(task.name) }"
+                @click="handleRowClick(task)"
               >
                 <!-- Row Checkbox -->
-                <td class="w-10 px-3 py-2 text-center">
+                <td class="w-10 px-3 py-2 text-center" @click.stop>
                   <input
                     type="checkbox"
                     :value="task.name"
                     v-model="selectedTaskIds"
                     class="size-4 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0"
+                    @click.stop
                   />
                 </td>
 
@@ -195,6 +197,7 @@
                         query: { taskId: task.name },
                       }"
                       class="truncate font-semibold text-ink-gray-9 hover:underline hover:text-ink-primary dark:text-ink-white"
+                      @click.stop
                     >
                       {{ task.contact_name || task.prospect_name || '—' }}
                     </router-link>
@@ -213,27 +216,13 @@
                 </td>
 
                 <!-- 3. Email -->
-                <td class="px-3.5 py-2 truncate">
-                  <a
-                    v-if="task.email"
-                    :href="`mailto:${task.email}`"
-                    class="text-ink-gray-7 hover:underline dark:text-ink-gray-3"
-                  >
-                    {{ task.email }}
-                  </a>
-                  <span v-else class="text-ink-gray-4">—</span>
+                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
+                  {{ task.email || '—' }}
                 </td>
 
                 <!-- 4. Phone -->
-                <td class="px-3.5 py-2 truncate">
-                  <a
-                    v-if="task.mobile_no"
-                    :href="`tel:${task.mobile_no}`"
-                    class="text-ink-gray-7 hover:underline dark:text-ink-gray-3"
-                  >
-                    {{ task.mobile_no }}
-                  </a>
-                  <span v-else class="text-ink-gray-4">—</span>
+                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
+                  {{ task.mobile_no || '—' }}
                 </td>
 
                 <!-- 5. Country -->
@@ -268,15 +257,15 @@
                 </td>
 
                 <!-- 10. Actions Column: 1. Email, 2. Phone, 3. Pencil/Edit -->
-                <td class="px-3.5 py-2 text-right whitespace-nowrap">
-                  <div class="inline-flex items-center gap-1.5 justify-end">
+                <td class="px-3.5 py-2 text-right whitespace-nowrap" @click.stop>
+                  <div class="inline-flex items-center gap-1.5 justify-end" @click.stop>
                     <!-- 1. Email icon -->
                     <Button
                       variant="subtle"
                       icon="lucide-mail"
                       :tooltip="__('Send Email')"
                       class="!size-7 p-1 text-ink-blue-3 hover:bg-surface-blue-2"
-                      @click="openTaskEmail(task)"
+                      @click.stop="openTaskEmail(task)"
                     />
                     <!-- 2. Phone icon -->
                     <Button
@@ -285,15 +274,16 @@
                       :tooltip="task.mobile_no ? __('Call / Log Call') : __('No phone number available')"
                       class="!size-7 p-1 text-ink-green-3 hover:bg-surface-green-2"
                       :class="{ 'opacity-40': !task.mobile_no }"
-                      @click="handlePhoneAction(task)"
+                      @click.stop="handlePhoneAction(task)"
                     />
                     <!-- 3. Pencil/Edit icon -->
-                    <Dropdown :options="getStatusDropdownOptions(task)">
+                    <Dropdown :options="getStatusDropdownOptions(task)" @click.stop>
                       <Button
                         variant="subtle"
                         icon="lucide-edit-2"
                         :tooltip="__('Update Status')"
                         class="!size-7 p-1 text-ink-gray-7 hover:text-ink-gray-9 hover:bg-surface-gray-2 dark:text-ink-gray-3"
+                        @click.stop
                       />
                     </Dropdown>
                   </div>
@@ -716,6 +706,7 @@
 
 <script setup>
 import { ref, reactive, computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { call, Button, Dialog, Badge, Dropdown, Tooltip, toast } from 'frappe-ui'
 import { Editor, EditorContent, EditorFixedMenu } from 'frappe-ui/editor'
 import { buildEditorExtensions, formToolbar } from '@/components/editor/config'
@@ -727,7 +718,21 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import BulkEmailModal from '@/components/Modals/BulkEmailModal.vue'
 import VisualEmailEditor from '@/components/VisualEmailEditor.vue'
 
+const router = useRouter()
 const { $dialog, $socket, makeCall } = globalStore()
+
+function handleRowClick(task) {
+  // If user is highlighting text to copy, do not navigate
+  const selection = window.getSelection ? window.getSelection().toString() : ''
+  if (selection && selection.trim().length > 0) return
+
+  if (!task?.contact) return
+  router.push({
+    name: 'TaskProspect',
+    params: { contactId: task.contact },
+    query: { taskId: task.name },
+  })
+}
 
 const todayStr = new Date().toLocaleDateString('en-CA')
 const loading = ref(false)
