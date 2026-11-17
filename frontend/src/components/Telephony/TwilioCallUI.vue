@@ -26,23 +26,58 @@
           <div class="text-2xl-medium">
             {{ contact?.full_name ?? __('Unknown') }}
           </div>
-          <div class="text-sm text-ink-gray-5">{{ contact?.mobile_no }}</div>
+          <div class="text-sm text-ink-gray-5">{{ phoneNumber || contact?.mobile_no }}</div>
         </div>
         <CountUpTimer ref="counterUp">
-          <div v-if="onCall" class="my-1 text-base">
+          <div v-if="onCall" class="my-1 text-base text-center">
+            <span class="text-xs text-emerald-400 font-semibold block uppercase tracking-wider mb-0.5">
+              {{ __('Connected') }}
+            </span>
             {{ counterUp?.updatedTime }}
           </div>
         </CountUpTimer>
-        <div v-if="!onCall" class="my-1 text-base">
-          {{
-            callStatus == 'initiating'
-              ? __('Initiating call...')
-              : callStatus == 'ringing'
-                ? __('Ringing...')
-                : calling
-                  ? __('Calling...')
-                  : __('Incoming call...')
-          }}
+        <div v-if="!onCall" class="my-1 text-base text-center">
+          <span v-if="callStatus === 'initiating'">{{ __('Connecting...') }}</span>
+          <span v-else-if="callStatus === 'ringing'">{{ __('Ringing...') }}</span>
+          <span v-else-if="callStatus === 'connected'">{{ __('Connected') }}</span>
+          <span v-else-if="callStatus === 'disconnected' || callStatus === 'completed'">{{ __('Call ended') }}</span>
+          <span v-else-if="callStatus === 'cancelled'">{{ __('Call cancelled') }}</span>
+          <span v-else-if="callStatus === 'failed'" class="text-surface-red-5 font-medium">
+            {{ __('Call Failed') }}
+          </span>
+          <span v-else-if="calling">{{ __('Calling...') }}</span>
+          <span v-else>{{ __('Incoming call...') }}</span>
+        </div>
+
+        <!-- Failure Details & Retry Area -->
+        <div
+          v-if="callStatus === 'failed'"
+          class="flex flex-col items-center gap-2 px-2 text-center w-full"
+        >
+          <div
+            v-if="callErrorMessage"
+            class="text-xs text-ink-gray-4 leading-relaxed max-w-[240px] break-words"
+          >
+            {{ callErrorMessage }}
+          </div>
+          <div class="flex gap-2 mt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              :label="__('Close')"
+              class="rounded-6"
+              @click="closeCallPopup"
+            />
+            <Button
+              size="sm"
+              variant="solid"
+              theme="green"
+              :label="__('Retry')"
+              class="rounded-6 text-ink-base"
+              :iconLeft="PhoneIcon"
+              @click="retryCall"
+            />
+          </div>
         </div>
 
         <!-- Live Transcript Area -->
@@ -151,20 +186,22 @@
             @click="sendDigit(digit)"
           />
         </div>
-        <div v-else-if="calling || callStatus == 'initiating'">
+        <div v-else-if="calling || callStatus == 'initiating' || callStatus == 'ringing'">
           <Button
             size="md"
             variant="solid"
             theme="red"
             :label="__('Cancel')"
             class="rounded-6 text-ink-base"
-            :disabled="callStatus == 'initiating'"
             @click="cancelCall"
           >
             <template #prefix>
               <PhoneIcon class="rotate-[135deg]" />
             </template>
           </Button>
+        </div>
+        <div v-else-if="callStatus === 'failed' || callStatus === 'disconnected' || callStatus === 'cancelled'">
+          <!-- Handled above with retry/close buttons or status message -->
         </div>
         <div v-else class="flex gap-2">
           <Button
@@ -221,7 +258,10 @@
         @click.stop="hangUpCall"
       />
     </div>
-    <div v-else-if="calling" class="flex items-center gap-3">
+    <div
+      v-else-if="calling || callStatus == 'initiating' || callStatus == 'ringing'"
+      class="flex items-center gap-3"
+    >
       <div class="my-1">
         {{ callStatus == 'ringing' ? __('Ringing...') : __('Calling...') }}
       </div>
@@ -231,6 +271,16 @@
         class="!h-6 !w-6 rounded-full rotate-[135deg] text-ink-base"
         :icon="PhoneIcon"
         @click.stop="cancelCall"
+      />
+    </div>
+    <div v-else-if="callStatus === 'failed'" class="flex items-center gap-2">
+      <span class="text-xs text-surface-red-5 font-medium">{{ __('Call Failed') }}</span>
+      <Button
+        variant="outline"
+        size="sm"
+        class="!h-6 text-xs"
+        :label="__('Close')"
+        @click.stop="closeCallPopup"
       />
     </div>
     <div v-else class="flex items-center gap-2">
@@ -269,13 +319,18 @@ import {
   formatTranscriptUtterances,
   appendOrUpdateUtterance,
 } from '@/utils/callTranscript'
-import { Avatar, call, createResource } from 'frappe-ui'
+import {
+  validateTokenResponse,
+  mapTwilioSignalingStatus,
+  extractCallErrorMessage,
+} from '@/utils/twilioCall'
+import { Avatar, call, createResource, toast } from 'frappe-ui'
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 const { capture } = useTelemetry()
 const { $socket } = globalStore()
 
-let device = ''
+let device = null
 let log = ref('Connecting...')
 let _call = null
 
@@ -288,6 +343,12 @@ let showKeypad = ref(false)
 let callPopup = ref(null)
 let counterUp = ref(null)
 let callStatus = ref('')
+
+const deviceStatus = ref('uninitialized') // 'uninitialized', 'initializing', 'registering', 'ready', 'error'
+const deviceErrorMessage = ref('')
+const callErrorMessage = ref('')
+let isCallPendingConnect = false
+let closeStatusTimer = null
 
 const activeCallSid = ref('')
 const utterances = ref([])
@@ -450,52 +511,160 @@ onBeforeUnmount(() => {
 })
 
 async function startupClient() {
+  if (deviceStatus.value === 'initializing' || deviceStatus.value === 'registering') {
+    return false
+  }
+
+  deviceStatus.value = 'initializing'
+  deviceErrorMessage.value = ''
   log.value = 'Requesting Access Token...'
 
   try {
     setupSocket()
     const data = await call('crm.integrations.twilio.api.generate_access_token')
+
+    const validation = validateTokenResponse(data)
+    if (!validation.ok) {
+      const msg = __(validation.message)
+      deviceStatus.value = 'error'
+      deviceErrorMessage.value = msg
+      log.value = msg
+      return false
+    }
+
     log.value = 'Got a token.'
-    intitializeDevice(data.token)
+    intitializeDevice(validation.token)
+    return true
   } catch (err) {
-    log.value = 'An error occurred. ' + err.message
+    const msg =
+      err.messages?.[0] ||
+      err.message ||
+      __('An error occurred while requesting Twilio access token.')
+    deviceStatus.value = 'error'
+    deviceErrorMessage.value = msg
+    log.value = msg
+    return false
   }
 }
 
 function intitializeDevice(token) {
-  device = new Device(token, {
-    codecPreferences: ['opus', 'pcmu'],
-    fakeLocalDTMF: true,
-    enableRingingState: true,
-  })
+  if (!token) {
+    deviceStatus.value = 'error'
+    deviceErrorMessage.value = __('Invalid Twilio token received.')
+    log.value = deviceErrorMessage.value
+    return
+  }
 
-  addDeviceListeners()
+  try {
+    if (device && typeof device.destroy === 'function') {
+      try {
+        device.destroy()
+      } catch (e) {
+        console.warn('Error destroying existing device instance:', e)
+      }
+    }
 
-  device.register()
+    device = new Device(token, {
+      codecPreferences: ['opus', 'pcmu'],
+      fakeLocalDTMF: true,
+      enableRingingState: true,
+    })
+
+    addDeviceListeners()
+    deviceStatus.value = 'registering'
+    device.register()
+  } catch (err) {
+    deviceStatus.value = 'error'
+    deviceErrorMessage.value =
+      err.message || __('Failed to initialize Twilio device.')
+    log.value = deviceErrorMessage.value
+  }
 }
 
 function addDeviceListeners() {
+  if (!device) return
+
   device.on('registered', () => {
+    deviceStatus.value = 'ready'
+    deviceErrorMessage.value = ''
     log.value = 'Ready to make and receive calls!'
   })
 
+  device.on('registering', () => {
+    deviceStatus.value = 'registering'
+    log.value = 'Registering Twilio device...'
+  })
+
   device.on('unregistered', () => {
-    log.value = 'Logged out'
+    deviceStatus.value = 'unregistered'
+    log.value = 'Twilio device unregistered'
   })
 
   device.on('error', (error) => {
-    log.value = 'Twilio.Device Error: ' + error.message
+    log.value = 'Twilio.Device Error: ' + (error.message || error)
+    let userMsg = error.message || __('Twilio connection error')
+    if (error.code === 31204 || error.code === 31205) {
+      userMsg = __('Twilio authentication expired. Please refresh.')
+    }
+    deviceErrorMessage.value = userMsg
+
+    if (calling.value && !onCall.value) {
+      callStatus.value = 'failed'
+      calling.value = false
+      callErrorMessage.value = userMsg
+    }
+    if (!onCall.value && !calling.value) {
+      deviceStatus.value = 'error'
+    }
   })
 
   device.on('incoming', handleIncomingCall)
 
   device.on('tokenWillExpire', async () => {
-    const data = await call('crm.integrations.twilio.api.generate_access_token')
-    device.updateToken(data.token)
+    try {
+      const data = await call('crm.integrations.twilio.api.generate_access_token')
+      if (data?.token && device) {
+        device.updateToken(data.token)
+      }
+    } catch (e) {
+      console.error('Failed to refresh Twilio token:', e)
+    }
+  })
+}
+
+function waitForDeviceRegistered(timeoutMs = 6000) {
+  return new Promise((resolve) => {
+    if (device?.state === 'registered' || deviceStatus.value === 'ready') {
+      return resolve(true)
+    }
+
+    let timer = null
+    const onRegistered = () => {
+      cleanup()
+      resolve(true)
+    }
+    const onError = () => {
+      cleanup()
+      resolve(false)
+    }
+    const cleanup = () => {
+      if (timer) clearTimeout(timer)
+      device?.removeListener('registered', onRegistered)
+      device?.removeListener('error', onError)
+    }
+
+    timer = setTimeout(() => {
+      cleanup()
+      resolve(device?.state === 'registered' || deviceStatus.value === 'ready')
+    }, timeoutMs)
+
+    device?.once('registered', onRegistered)
+    device?.once('error', onError)
   })
 }
 
 function toggleMute() {
+  if (!_call) return
   if (_call.isMuted()) {
     _call.mute(false)
     muted.value = false
@@ -542,164 +711,348 @@ function handleIncomingCall(call) {
 async function acceptIncomingCall() {
   log.value = 'Accepted incoming call.'
   onCall.value = true
+  callStatus.value = 'connected'
   if (_call?.parameters?.CallSid) {
     activeCallSid.value = _call.parameters.CallSid
   }
   await _call.accept()
-  counterUp.value.start()
+  counterUp.value?.start()
 }
 
 function rejectIncomingCall() {
-  _call.reject()
+  if (_call) {
+    try {
+      _call.reject()
+    } catch (e) {}
+  }
   log.value = 'Rejected incoming call'
-  showCallPopup.value = false
-  showSmallCallWindow.value = false
-  showKeypad.value = false
-
-  callStatus.value = ''
-  muted.value = false
-  resetTranscriptState()
+  closeCallPopup()
 }
 
 async function hangUpCall() {
   await saveFinalTranscript()
-  _call.disconnect()
-  log.value = 'Hanging up incoming call'
-  onCall.value = false
-  callStatus.value = ''
-  muted.value = false
-  showKeypad.value = false
-  note.value = {
-    name: '',
-    title: '',
-    content: '',
+  log.value = 'Hanging up call'
+  if (_call) {
+    try {
+      _call.disconnect()
+    } catch (e) {
+      console.warn('Error disconnecting on hangup:', e)
+    }
   }
-  counterUp.value.stop()
-  resetTranscriptState()
+  handleCallDisconnected()
 }
 
 async function handleDisconnectedIncomingCall() {
   log.value = `Call ended from handle disconnected Incoming call.`
   await saveFinalTranscript()
-  showCallPopup.value = false
-  showSmallCallWindow.value = false
-  showKeypad.value = false
-  _call = null
-  muted.value = false
-  onCall.value = false
-  counterUp.value.stop()
-  resetTranscriptState()
+  closeCallPopup()
 }
 
 async function makeOutgoingCall(number) {
+  if (!number) {
+    toast.error(__('Please enter a valid phone number to call.'))
+    return
+  }
+
+  // Prevent multiple simultaneous outgoing call attempts
+  if (onCall.value || calling.value || callStatus.value === 'initiating' || isCallPendingConnect) {
+    toast.warning(__('A call is already in progress.'))
+    return
+  }
+
+  if (closeStatusTimer) {
+    clearTimeout(closeStatusTimer)
+    closeStatusTimer = null
+  }
+
+  isCallPendingConnect = true
   phoneNumber.value = number
   resetTranscriptState()
 
-  if (device) {
-    log.value = `Attempting to call ${number} ...`
+  // Immediately display calling popup to give user feedback & control
+  showCallPopup.value = true
+  showSmallCallWindow.value = false
+  callStatus.value = 'initiating'
+  calling.value = true
+  onCall.value = false
+  muted.value = false
+  showKeypad.value = false
+  callErrorMessage.value = ''
 
-    try {
-      _call = await device.connect({
-        params: { To: number },
-      })
-      if (_call.parameters?.CallSid) {
-        activeCallSid.value = _call.parameters.CallSid
+  try {
+    // 1. Ensure Device is ready
+    if (!device || deviceStatus.value !== 'ready') {
+      log.value = 'Twilio device not ready. Initializing...'
+      const ok = await startupClient()
+      if (!ok || !device) {
+        callStatus.value = 'failed'
+        calling.value = false
+        callErrorMessage.value =
+          deviceErrorMessage.value ||
+          __(
+            'Twilio telephony service is not ready. Please verify your phone mapping and settings.',
+          )
+        return
       }
 
-      showCallPopup.value = true
-      callStatus.value = 'initiating'
+      if (device.state !== 'registered') {
+        await waitForDeviceRegistered(6000)
+      }
 
-      capture('make_outgoing_call')
-
-      _call.on('messageReceived', (message) => {
-        let info = message.content
-        callStatus.value = info.CallStatus
-        if (info.ParentCallSid) {
-          activeCallSid.value = info.ParentCallSid
-        } else if (info.CallSid && !activeCallSid.value) {
-          activeCallSid.value = info.CallSid
-        }
-
-        log.value = `Call status: ${info.CallStatus}`
-
-        if (info.CallStatus == 'in-progress') {
-          log.value = `Call in progress.`
-          calling.value = false
-          onCall.value = true
-          counterUp.value.start()
-        }
-      })
-
-      _call.on('accept', () => {
-        log.value = `Initiated call!`
-        showCallPopup.value = true
-        calling.value = true
-        onCall.value = false
-        if (_call?.parameters?.CallSid) {
-          activeCallSid.value = _call.parameters.CallSid
-        }
-      })
-      _call.on('disconnect', async () => {
-        log.value = `Call ended from makeOutgoing call disconnect.`
-        await saveFinalTranscript()
+      if (deviceStatus.value === 'error') {
+        callStatus.value = 'failed'
         calling.value = false
-        onCall.value = false
-        showCallPopup.value = false
-        showSmallCallWindow.value = false
-        showKeypad.value = false
-        _call = null
-        callStatus.value = ''
-        muted.value = false
-        counterUp.value.stop()
-        note.value = {
-          name: '',
-          title: '',
-          content: '',
-        }
-        resetTranscriptState()
-      })
-      _call.on('cancel', () => {
-        log.value = `Call ended from makeOutgoing call cancel.`
-        calling.value = false
-        onCall.value = false
-        showCallPopup.value = false
-        showSmallCallWindow.value = false
-        showKeypad.value = false
-        _call = null
-        callStatus.value = ''
-        muted.value = false
-        note.value = {
-          name: '',
-          title: '',
-          content: '',
-        }
-        counterUp.value.stop()
-        resetTranscriptState()
-      })
-    } catch (error) {
-      log.value = `Could not connect call: ${error.message}`
-      transcriptionStatus.value = 'error'
+        callErrorMessage.value =
+          deviceErrorMessage.value || __('Twilio registration failed.')
+        return
+      }
     }
-  } else {
-    log.value = 'Unable to make call.'
+
+    // Check if user cancelled while device was preparing
+    if (callStatus.value === 'cancelled' || !showCallPopup.value) {
+      return
+    }
+
+    // 2. Microphone permission validation
+    if (navigator?.mediaDevices?.getUserMedia) {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (micErr) {
+        console.warn('Microphone permission check failed:', micErr)
+        callStatus.value = 'failed'
+        calling.value = false
+        callErrorMessage.value = __(
+          'Microphone permission denied. Please allow microphone access in your browser to place calls.',
+        )
+        return
+      }
+    }
+
+    // Check if user cancelled while microphone prompt was active
+    if (callStatus.value === 'cancelled' || !showCallPopup.value) {
+      return
+    }
+
+    // 3. Initiate Twilio connection
+    log.value = `Attempting to call ${number} ...`
+    callStatus.value = 'initiating'
+
+    _call = await device.connect({
+      params: { To: number },
+    })
+
+    if (_call?.parameters?.CallSid) {
+      activeCallSid.value = _call.parameters.CallSid
+    }
+
+    // Check if user cancelled while connect was awaiting
+    if (callStatus.value === 'cancelled' || !showCallPopup.value) {
+      if (_call) {
+        try {
+          _call.disconnect()
+        } catch (e) {}
+        _call = null
+      }
+      return
+    }
+
+    capture('make_outgoing_call')
+    attachOutgoingCallListeners(_call)
+  } catch (error) {
+    console.error('Error during makeOutgoingCall:', error)
+    log.value = `Could not connect call: ${error.message}`
+    callStatus.value = 'failed'
+    calling.value = false
+    transcriptionStatus.value = 'error'
+    callErrorMessage.value = __(extractCallErrorMessage(error))
+  } finally {
+    isCallPendingConnect = false
   }
 }
 
-function cancelCall() {
-  _call.disconnect()
-  showCallPopup.value = false
-  showSmallCallWindow.value = false
+function attachOutgoingCallListeners(callInstance) {
+  if (!callInstance) return
+
+  // Ringing event from Voice SDK (when enableRingingState: true)
+  callInstance.on('ringing', () => {
+    log.value = 'Ringing...'
+    if (!onCall.value) {
+      callStatus.value = 'ringing'
+    }
+  })
+
+  // Status message received from TwiML callback
+  callInstance.on('messageReceived', (message) => {
+    let info = message?.content
+    if (typeof info === 'string') {
+      try {
+        info = JSON.parse(info)
+      } catch (e) {
+        // use raw string
+      }
+    }
+    if (!info) return
+
+    const rawStatus = info.CallStatus || info.call_status || info.status
+    const signalingStatus = mapTwilioSignalingStatus(rawStatus)
+    if (info.ParentCallSid) {
+      activeCallSid.value = info.ParentCallSid
+    } else if (info.CallSid && !activeCallSid.value) {
+      activeCallSid.value = info.CallSid
+    }
+
+    log.value = `Call status update: ${rawStatus}`
+
+    if (signalingStatus === 'ringing') {
+      if (!onCall.value) {
+        callStatus.value = 'ringing'
+      }
+    } else if (signalingStatus === 'connected') {
+      log.value = 'Call in progress (answered).'
+      callStatus.value = 'connected'
+      calling.value = false
+      onCall.value = true
+      counterUp.value?.start()
+    } else if (
+      signalingStatus === 'busy' ||
+      signalingStatus === 'no-answer' ||
+      signalingStatus === 'failed'
+    ) {
+      log.value = `Call not completed: ${rawStatus}`
+      callStatus.value = 'failed'
+      calling.value = false
+      onCall.value = false
+      counterUp.value?.stop()
+      callErrorMessage.value =
+        signalingStatus === 'busy'
+          ? __('Line is busy.')
+          : signalingStatus === 'no-answer'
+            ? __('No answer from recipient.')
+            : __('Call failed to connect.')
+    } else if (signalingStatus === 'completed') {
+      handleCallDisconnected()
+    }
+  })
+
+  callInstance.on('accept', () => {
+    log.value = 'Call stream accepted by Twilio'
+    if (callInstance?.parameters?.CallSid) {
+      activeCallSid.value = callInstance.parameters.CallSid
+    }
+  })
+
+  callInstance.on('disconnect', () => {
+    handleCallDisconnected()
+  })
+
+  callInstance.on('cancel', () => {
+    log.value = 'Call cancelled'
+    handleCallCancelled()
+  })
+
+  callInstance.on('error', (err) => {
+    console.error('Twilio Call Error:', err)
+    log.value = 'Call error: ' + (err.message || err)
+    callStatus.value = 'failed'
+    calling.value = false
+    onCall.value = false
+    callErrorMessage.value = err.message || __('Call encountered an error.')
+    counterUp.value?.stop()
+  })
+}
+
+async function handleCallDisconnected() {
+  log.value = 'Call ended (disconnected).'
+  await saveFinalTranscript()
+  callStatus.value = 'disconnected'
   calling.value = false
   onCall.value = false
+  counterUp.value?.stop()
+  muted.value = false
+  showKeypad.value = false
+
+  if (closeStatusTimer) clearTimeout(closeStatusTimer)
+  closeStatusTimer = setTimeout(() => {
+    if (callStatus.value === 'disconnected') {
+      closeCallPopup()
+    }
+  }, 2000)
+}
+
+function handleCallCancelled() {
+  callStatus.value = 'cancelled'
+  calling.value = false
+  onCall.value = false
+  counterUp.value?.stop()
+  muted.value = false
+  showKeypad.value = false
+
+  if (closeStatusTimer) clearTimeout(closeStatusTimer)
+  closeStatusTimer = setTimeout(() => {
+    if (callStatus.value === 'cancelled') {
+      closeCallPopup()
+    }
+  }, 1200)
+}
+
+function cancelCall() {
+  log.value = 'User clicked Cancel.'
+  callStatus.value = 'cancelled'
+  calling.value = false
+  onCall.value = false
+
+  if (_call) {
+    try {
+      _call.disconnect()
+    } catch (e) {
+      console.warn('Error disconnecting call on cancel:', e)
+    }
+    _call = null
+  }
+
+  counterUp.value?.stop()
+  resetTranscriptState()
+  closeCallPopup()
+}
+
+function retryCall() {
+  callStatus.value = ''
+  callErrorMessage.value = ''
+  if (phoneNumber.value) {
+    makeOutgoingCall(phoneNumber.value)
+  }
+}
+
+function closeCallPopup() {
+  if (closeStatusTimer) {
+    clearTimeout(closeStatusTimer)
+    closeStatusTimer = null
+  }
+  showCallPopup.value = false
+  showSmallCallWindow.value = false
   showKeypad.value = false
   callStatus.value = ''
+  callErrorMessage.value = ''
+  calling.value = false
+  onCall.value = false
   muted.value = false
   note.value = {
     name: '',
     title: '',
     content: '',
   }
+  _call = null
   resetTranscriptState()
+}
+
+function isCallInProgress() {
+  return Boolean(
+    onCall.value ||
+    calling.value ||
+    callStatus.value === 'initiating' ||
+    callStatus.value === 'ringing' ||
+    isCallPendingConnect,
+  )
 }
 
 function toggleCallWindow() {
@@ -721,7 +1074,12 @@ watch(
   { immediate: true },
 )
 
-defineExpose({ makeOutgoingCall, setup: startupClient })
+defineExpose({
+  makeOutgoingCall,
+  setup: startupClient,
+  isCallInProgress,
+  closeCallPopup,
+})
 </script>
 
 <style scoped>

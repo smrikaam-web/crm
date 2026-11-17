@@ -118,6 +118,17 @@
                 </div>
               </div>
 
+              <!-- Action buttons -->
+              <div class="flex gap-1.5">
+                <Button
+                  :label="__('Make Call')"
+                  size="sm"
+                  :iconLeft="PhoneIcon"
+                  class="font-medium"
+                  @click="makeCall(contact.doc?.mobile_no || contact.doc?.phone || '')"
+                />
+              </div>
+
               <!-- Allocation info snippet -->
               <div v-if="taskData" class="w-full rounded bg-surface-gray-1 p-2.5 text-xs text-ink-gray-6 border border-outline-gray-2 space-y-1">
                 <div class="flex items-center justify-between">
@@ -129,16 +140,6 @@
                 <div v-if="taskData.notes" class="text-ink-gray-7 truncate">
                   <span class="font-medium">{{ __('Notes:') }}</span> {{ taskData.notes }}
                 </div>
-              </div>
-
-              <div class="flex gap-1.5">
-                <Button
-                  v-if="callEnabled && contact.doc.mobile_no"
-                  :label="__('Make Call')"
-                  size="sm"
-                  :iconLeft="PhoneIcon"
-                  @click="callEnabled && makeCall(contact.doc.mobile_no)"
-                />
               </div>
             </div>
           </template>

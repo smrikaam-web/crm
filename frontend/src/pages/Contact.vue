@@ -93,11 +93,10 @@
               </div>
               <div class="flex gap-1.5">
                 <Button
-                  v-if="callEnabled && contact.doc.mobile_no"
                   :label="__('Make Call')"
                   size="sm"
                   :iconLeft="PhoneIcon"
-                  @click="callEnabled && makeCall(contact.doc.mobile_no)"
+                  @click="makeCall(contact.doc?.mobile_no || contact.doc?.phone || '')"
                 />
                 <Button
                   v-if="canDelete"

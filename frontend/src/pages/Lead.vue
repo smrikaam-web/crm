@@ -133,17 +133,9 @@
               </Tooltip>
               <div class="flex gap-1.5">
                 <Button
-                  v-if="callEnabled"
                   :tooltip="__('Make a Call')"
                   :icon="PhoneIcon"
-                  @click="
-                    () =>
-                      doc.mobile_no
-                        ? makeCall(doc.mobile_no)
-                        : toast.error(
-                            __('Please set a mobile number to make calls'),
-                          )
-                  "
+                  @click="makeCall(doc.mobile_no || '')"
                 />
 
                 <Button

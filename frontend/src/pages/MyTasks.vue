@@ -36,6 +36,15 @@
           </select>
         </div>
 
+        <!-- Standalone Dial Pad Button -->
+        <Button
+          variant="subtle"
+          :icon="DialpadIcon"
+          :tooltip="__('Open Dial Pad')"
+          class="!size-7 p-1 text-ink-gray-7 hover:text-ink-gray-9 hover:bg-surface-gray-2 dark:text-ink-gray-3"
+          @click="openStandaloneDialpad"
+        />
+
         <!-- Date Filter Toggle -->
         <div class="flex items-center gap-1 rounded border border-outline-gray-2 bg-surface-base px-2 py-1 text-xs dark:border-outline-gray-7">
           <span class="font-medium text-ink-gray-5">{{ __('Date:') }}</span>
@@ -141,12 +150,12 @@
           </div>
         </div>
 
-        <!-- Task Table: Dense, compact 10-column prospect table -->
+        <!-- Task Table: Dense, compact 10-column prospect table with optimized column spacing -->
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
+          <table class="w-full min-w-[1080px] text-left text-xs">
             <thead class="bg-surface-gray-1 text-ink-gray-5 border-b border-outline-gray-2 dark:bg-surface-gray-8 dark:border-outline-gray-7">
               <tr>
-                <th class="w-10 px-3 py-2 text-center">
+                <th class="w-10 px-3 py-2 text-center shrink-0">
                   <input
                     ref="headerCheckboxRef"
                     type="checkbox"
@@ -156,16 +165,16 @@
                     @change="toggleSelectAll"
                   />
                 </th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Name') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Designation') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Email') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Phone') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Country') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Timezone') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Data Age') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Last Updated') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Assigned By') }}</th>
-                <th class="px-3.5 py-2 font-medium uppercase tracking-wider text-[11px] text-right">{{ __('Actions') }}</th>
+                <th class="w-[18%] min-w-[160px] max-w-[220px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Name') }}</th>
+                <th class="w-[14%] min-w-[120px] max-w-[170px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Designation') }}</th>
+                <th class="w-[16%] min-w-[150px] max-w-[210px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Email') }}</th>
+                <th class="w-[11%] min-w-[115px] max-w-[145px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Phone') }}</th>
+                <th class="w-[8%] min-w-[85px] max-w-[110px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Country') }}</th>
+                <th class="w-[9%] min-w-[95px] max-w-[120px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Timezone') }}</th>
+                <th class="w-[6%] min-w-[70px] max-w-[90px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Data Age') }}</th>
+                <th class="w-[7%] min-w-[80px] max-w-[100px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Last Updated') }}</th>
+                <th class="w-[8%] min-w-[90px] max-w-[115px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Assigned By') }}</th>
+                <th class="w-24 min-w-[96px] px-3 py-2 font-medium uppercase tracking-wider text-[11px] text-right shrink-0">{{ __('Actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-gray-2 dark:divide-outline-gray-7">
@@ -177,7 +186,7 @@
                 @click="handleRowClick(task)"
               >
                 <!-- Row Checkbox -->
-                <td class="w-10 px-3 py-2 text-center" @click.stop>
+                <td class="w-10 px-3 py-2 text-center shrink-0" @click.stop>
                   <input
                     type="checkbox"
                     :value="task.name"
@@ -188,8 +197,8 @@
                 </td>
 
                 <!-- 1. Name & Organization underneath -->
-                <td class="px-3.5 py-2">
-                  <div class="flex flex-col min-w-0">
+                <td class="w-[18%] min-w-[160px] max-w-[220px] px-3 py-2">
+                  <div class="flex flex-col min-w-0 max-w-[220px]">
                     <router-link
                       :to="{
                         name: 'TaskProspect',
@@ -211,32 +220,42 @@
                 </td>
 
                 <!-- 2. Designation -->
-                <td class="px-3.5 py-2 text-ink-gray-8 dark:text-ink-gray-2 truncate">
-                  {{ task.designation || '—' }}
+                <td class="w-[14%] min-w-[120px] max-w-[170px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate max-w-[170px]">
+                    {{ task.designation || '—' }}
+                  </div>
                 </td>
 
                 <!-- 3. Email -->
-                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
-                  {{ task.email || '—' }}
+                <td class="w-[16%] min-w-[150px] max-w-[210px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3">
+                  <div class="truncate max-w-[210px]">
+                    {{ task.email || '—' }}
+                  </div>
                 </td>
 
                 <!-- 4. Phone -->
-                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
-                  {{ task.mobile_no || '—' }}
+                <td class="w-[11%] min-w-[115px] max-w-[145px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3">
+                  <div class="truncate max-w-[145px] whitespace-nowrap">
+                    {{ task.mobile_no || '—' }}
+                  </div>
                 </td>
 
                 <!-- 5. Country -->
-                <td class="px-3.5 py-2 text-ink-gray-8 dark:text-ink-gray-2 truncate">
-                  {{ (task.country && task.country !== 'Not Available') ? task.country : '—' }}
+                <td class="w-[8%] min-w-[85px] max-w-[110px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate max-w-[110px]">
+                    {{ (task.country && task.country !== 'Not Available') ? task.country : '—' }}
+                  </div>
                 </td>
 
                 <!-- 6. Timezone -->
-                <td class="px-3.5 py-2 font-mono text-xs text-ink-gray-7 dark:text-ink-gray-3 truncate">
-                  {{ (task.timezone && task.timezone !== 'Not Available') ? formatTimezone(task.timezone) : '—' }}
+                <td class="w-[9%] min-w-[95px] max-w-[120px] px-3 py-2 font-mono text-xs text-ink-gray-7 dark:text-ink-gray-3">
+                  <div class="truncate max-w-[120px]">
+                    {{ (task.timezone && task.timezone !== 'Not Available') ? formatTimezone(task.timezone) : '—' }}
+                  </div>
                 </td>
 
                 <!-- 7. Data Age -->
-                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
+                <td class="w-[6%] min-w-[70px] max-w-[90px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <Tooltip v-if="task.creation" :text="formatDateTime(task.creation)">
                     <div>{{ formatDataAge(task.creation) }}</div>
                   </Tooltip>
@@ -244,7 +263,7 @@
                 </td>
 
                 <!-- 8. Last Updated -->
-                <td class="px-3.5 py-2 text-ink-gray-7 dark:text-ink-gray-3 truncate">
+                <td class="w-[7%] min-w-[80px] max-w-[100px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <Tooltip v-if="task.modified" :text="formatDateTime(task.modified)">
                     <div>{{ formatTimeAgo(task.modified) }}</div>
                   </Tooltip>
@@ -252,12 +271,14 @@
                 </td>
 
                 <!-- 9. Assigned By -->
-                <td class="px-3.5 py-2 text-ink-gray-8 dark:text-ink-gray-2 truncate">
-                  {{ task.allocated_by_name || task.allocated_by || '—' }}
+                <td class="w-[8%] min-w-[90px] max-w-[115px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate max-w-[115px]">
+                    {{ task.allocated_by_name || task.allocated_by || '—' }}
+                  </div>
                 </td>
 
                 <!-- 10. Actions Column: 1. Email, 2. Phone, 3. Pencil/Edit -->
-                <td class="px-3.5 py-2 text-right whitespace-nowrap" @click.stop>
+                <td class="w-24 min-w-[96px] px-3 py-2 text-right whitespace-nowrap shrink-0" @click.stop>
                   <div class="inline-flex items-center gap-1.5 justify-end" @click.stop>
                     <!-- 1. Email icon -->
                     <Button
@@ -271,7 +292,7 @@
                     <Button
                       variant="subtle"
                       icon="lucide-phone"
-                      :tooltip="task.mobile_no ? __('Call / Log Call') : __('No phone number available')"
+                      :tooltip="task.mobile_no ? __('Make Call') : __('No phone number available')"
                       class="!size-7 p-1 text-ink-green-3 hover:bg-surface-green-2"
                       :class="{ 'opacity-40': !task.mobile_no }"
                       @click.stop="handlePhoneAction(task)"
@@ -714,12 +735,17 @@ import { globalStore } from '@/stores/global'
 import { formatDate, timeAgo } from '@/utils'
 import { callEnabled } from '@/composables/telephony'
 import TaskIcon from '@/components/Icons/TaskIcon.vue'
+import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import BulkEmailModal from '@/components/Modals/BulkEmailModal.vue'
 import VisualEmailEditor from '@/components/VisualEmailEditor.vue'
 
 const router = useRouter()
 const { $dialog, $socket, makeCall } = globalStore()
+
+function openStandaloneDialpad() {
+  makeCall('')
+}
 
 function handleRowClick(task) {
   // If user is highlighting text to copy, do not navigate
@@ -856,11 +882,7 @@ function handlePhoneAction(task) {
     toast.error(__('No phone number available for this prospect'))
     return
   }
-  if (callEnabled?.value) {
-    makeCall(task.mobile_no)
-  } else {
-    openTaskCall(task)
-  }
+  makeCall(task.mobile_no)
 }
 
 function getStatusDropdownOptions(task) {
@@ -873,6 +895,12 @@ function getStatusDropdownOptions(task) {
     label: __('Edit notes & follow-up...'),
     icon: 'lucide-file-text',
     onClick: () => openEditModal(task),
+  })
+
+  options.push({
+    label: __('Log Call...'),
+    icon: 'lucide-phone-call',
+    onClick: () => openTaskCall(task),
   })
 
   return options

@@ -51,6 +51,13 @@ def get_dashboard(from_date: str | None = None, to_date: str | None = None, user
 		layout = json.loads(frappe.db.get_value("CRM Dashboard", "Manager Dashboard", "layout") or "[]")
 
 	for l in layout:
+		if l.get("name") in ("total_leads", "no_of_prospects"):
+			l["tooltip"] = _("Total number of prospects")
+		elif l.get("name") in ("average_time_to_close_a_lead", "average_time_to_close_a_prospect"):
+			l["tooltip"] = _("Average time taken to close a prospect")
+		elif l.get("name") in ("leads_by_source", "prospects_by_source"):
+			l["tooltip"] = _("Prospects by source")
+
 		method_name = f"get_{l['name']}"
 		if hasattr(frappe.get_attr("crm.api.dashboard"), method_name):
 			method = getattr(frappe.get_attr("crm.api.dashboard"), method_name)
@@ -90,7 +97,7 @@ def get_chart(
 
 def get_total_leads(from_date: str | None = None, to_date: str | None = None, user: str | None = None):
 	"""
-	Get lead count for the dashboard.
+	Get prospect count for the dashboard.
 	"""
 	diff = frappe.utils.date_diff(to_date, from_date)
 	if diff == 0:
@@ -99,40 +106,51 @@ def get_total_leads(from_date: str | None = None, to_date: str | None = None, us
 	prev_from_date = frappe.utils.add_days(from_date, -diff)
 	to_date_plus_one = frappe.utils.add_days(to_date, 1)
 
-	Lead = DocType("CRM Lead")
-
-	# Build conditions for current period
-	current_cond = (Lead.creation >= from_date) & (Lead.creation < to_date_plus_one)
+	user_cond = ""
 	if user:
-		current_cond = current_cond & (Lead.lead_owner == user)
+		from crm.api.security import get_contact_permission_conditions
 
-	# Build conditions for previous period
-	prev_cond = (Lead.creation >= prev_from_date) & (Lead.creation < from_date)
-	if user:
-		prev_cond = prev_cond & (Lead.lead_owner == user)
+		perm_cond = get_contact_permission_conditions(user)
+		if perm_cond:
+			user_cond = f" AND ({perm_cond})"
 
-	# Build query with CASE expressions
-	query = frappe.qb.from_(Lead).select(
-		Count(Case().when(current_cond, Lead.name).else_(None)).as_("current_month_leads"),
-		Count(Case().when(prev_cond, Lead.name).else_(None)).as_("prev_month_leads"),
+	query = f"""
+		SELECT
+			COUNT(DISTINCT CASE WHEN creation >= %(from_date)s AND creation < %(to_date_plus_one)s THEN name ELSE NULL END) as current_month_prospects,
+			COUNT(DISTINCT CASE WHEN creation >= %(prev_from_date)s AND creation < %(from_date)s THEN name ELSE NULL END) as prev_month_prospects
+		FROM `tabContact`
+		WHERE (custom_is_dropped = 0 OR custom_is_dropped IS NULL)
+		{user_cond}
+	"""
+	result = frappe.db.sql(
+		query,
+		{
+			"from_date": from_date,
+			"to_date_plus_one": to_date_plus_one,
+			"prev_from_date": prev_from_date,
+		},
+		as_dict=True,
 	)
 
-	result = query.run(as_dict=True)
-
-	current_month_leads = result[0].current_month_leads or 0
-	prev_month_leads = result[0].prev_month_leads or 0
+	current_month_prospects = (result[0].current_month_prospects if result else 0) or 0
+	prev_month_prospects = (result[0].prev_month_prospects if result else 0) or 0
 
 	delta_in_percentage = (
-		(current_month_leads - prev_month_leads) / prev_month_leads * 100 if prev_month_leads else 0
+		(current_month_prospects - prev_month_prospects) / prev_month_prospects * 100
+		if prev_month_prospects
+		else 0
 	)
 
 	return {
-		"title": _("Total leads"),
-		"tooltip": _("Total number of leads"),
-		"value": current_month_leads,
+		"title": _("No. of Prospects"),
+		"tooltip": _("Total number of prospects"),
+		"value": current_month_prospects,
 		"delta": delta_in_percentage,
 		"deltaSuffix": "%",
 	}
+
+
+get_no_of_prospects = get_total_leads
 
 
 def get_ongoing_deals(from_date: str | None = None, to_date: str | None = None, user: str | None = None):
@@ -428,7 +446,7 @@ def get_average_time_to_close_a_lead(
 	from_date: str | None = None, to_date: str | None = None, user: str | None = None
 ):
 	"""
-	Get average time to close deals for the dashboard.
+	Get average time to close a prospect for the dashboard.
 	"""
 	diff = frappe.utils.date_diff(to_date, from_date)
 	if diff == 0:
@@ -441,6 +459,7 @@ def get_average_time_to_close_a_lead(
 	Deal = DocType("CRM Deal")
 	Status = DocType("CRM Deal Status")
 	Lead = DocType("CRM Lead")
+	Contact = DocType("Contact")
 
 	# Base condition: closed_date is not null and status type is Won
 	base_cond = (Deal.closed_date.isnotnull()) & (Status.type == "Won")
@@ -453,9 +472,11 @@ def get_average_time_to_close_a_lead(
 	# Previous period condition
 	prev_cond = (Deal.closed_date >= prev_from_date) & (Deal.closed_date < prev_to_date)
 
-	# Calculate time difference from lead/deal creation to deal closure
+	# Calculate time difference from prospect/deal creation to deal closure
 	time_diff = TimestampDiff(
-		frappe.qb.terms.LiteralValue("DAY"), Coalesce(Lead.creation, Deal.creation), Deal.closed_date
+		frappe.qb.terms.LiteralValue("DAY"),
+		Coalesce(Contact.creation, Lead.creation, Deal.creation),
+		Deal.closed_date,
 	)
 
 	# Build query
@@ -463,6 +484,8 @@ def get_average_time_to_close_a_lead(
 		frappe.qb.from_(Deal)
 		.join(Status)
 		.on(Deal.status == Status.name)
+		.left_join(Contact)
+		.on(Deal.contact == Contact.name)
 		.left_join(Lead)
 		.on(Deal.lead == Lead.name)
 		.where(base_cond)
@@ -479,14 +502,17 @@ def get_average_time_to_close_a_lead(
 	delta_lead = current_avg_lead - prev_avg_lead if prev_avg_lead else 0
 
 	return {
-		"title": _("Avg. time to close a lead"),
-		"tooltip": _("Average time taken from lead creation to deal closure"),
+		"title": _("Avg. time to close a prospect"),
+		"tooltip": _("Average time taken from prospect creation to deal closure"),
 		"value": current_avg_lead,
 		"suffix": " days",
 		"delta": delta_lead,
 		"deltaSuffix": " days",
 		"negativeIsBetter": True,
 	}
+
+
+get_average_time_to_close_a_prospect = get_average_time_to_close_a_lead
 
 
 def get_average_time_to_close_a_deal(
@@ -556,8 +582,8 @@ def get_sales_trend(from_date: str | None = None, to_date: str | None = None, us
 	"""
 	Get sales trend data for the dashboard.
 	[
-		{ date: new Date('2024-05-01'), leads: 45, deals: 23, won_deals: 12 },
-		{ date: new Date('2024-05-02'), leads: 50, deals: 30, won_deals: 15 },
+		{ date: '2024-05-01', prospects: 45, leads: 45, deals: 23, won_deals: 12 },
+		{ date: '2024-05-02', prospects: 50, leads: 50, deals: 30, won_deals: 15 },
 		...
 	]
 	"""
@@ -565,68 +591,60 @@ def get_sales_trend(from_date: str | None = None, to_date: str | None = None, us
 		from_date = frappe.utils.get_first_day(from_date or frappe.utils.nowdate())
 		to_date = frappe.utils.get_last_day(to_date or frappe.utils.nowdate())
 
-	Lead = DocType("CRM Lead")
-	Deal = DocType("CRM Deal")
-	Status = DocType("CRM Deal Status")
-
-	# Build leads query
-	leads_query = (
-		frappe.qb.from_(Lead)
-		.select(
-			Date(Lead.creation).as_("date"),
-			Count("*").as_("leads"),
-			frappe.qb.terms.ValueWrapper(0).as_("deals"),
-			frappe.qb.terms.ValueWrapper(0).as_("won_deals"),
-		)
-		.where(Date(Lead.creation).between(from_date, to_date))
-	)
+	contact_user_cond = ""
+	deal_user_cond = ""
+	params = {"from_date": from_date, "to_date": to_date}
 
 	if user:
-		leads_query = leads_query.where(Lead.lead_owner == user)
+		from crm.api.security import get_contact_permission_conditions
 
-	leads_query = leads_query.groupby(Date(Lead.creation))
+		perm_cond = get_contact_permission_conditions(user)
+		if perm_cond:
+			contact_user_cond = f" AND ({perm_cond})"
+		deal_user_cond = " AND d.deal_owner = %(user)s"
+		params["user"] = user
 
-	# Build deals query
-	deals_query = (
-		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
-		.select(
-			Date(Deal.creation).as_("date"),
-			frappe.qb.terms.ValueWrapper(0).as_("leads"),
-			Count("*").as_("deals"),
-			Sum(Case().when(Status.type == "Won", 1).else_(0)).as_("won_deals"),
-		)
-		.where(Date(Deal.creation).between(from_date, to_date))
-	)
+	query = f"""
+		SELECT
+			DATE_FORMAT(u.date, '%%Y-%%m-%%d') as date,
+			SUM(u.prospects) as prospects,
+			SUM(u.deals) as deals,
+			SUM(u.won_deals) as won_deals
+		FROM (
+			SELECT
+				DATE(creation) as date,
+				COUNT(DISTINCT name) as prospects,
+				0 as deals,
+				0 as won_deals
+			FROM `tabContact`
+			WHERE DATE(creation) BETWEEN %(from_date)s AND %(to_date)s
+			  AND (custom_is_dropped = 0 OR custom_is_dropped IS NULL)
+			  {contact_user_cond}
+			GROUP BY DATE(creation)
 
-	if user:
-		deals_query = deals_query.where(Deal.deal_owner == user)
+			UNION ALL
 
-	deals_query = deals_query.groupby(Date(Deal.creation))
-
-	# Combine with UNION ALL and aggregate by date
-	union_query = leads_query.union_all(deals_query)
-
-	# Wrap in outer query to aggregate by date
-	daily = (
-		frappe.qb.from_(union_query)
-		.select(
-			DateFormat(union_query.date, "%Y-%m-%d").as_("date"),
-			Sum(union_query.leads).as_("leads"),
-			Sum(union_query.deals).as_("deals"),
-			Sum(union_query.won_deals).as_("won_deals"),
-		)
-		.groupby(union_query.date)
-		.orderby(union_query.date)
-	)
-
-	result = daily.run(as_dict=True)
+			SELECT
+				DATE(d.creation) as date,
+				0 as prospects,
+				COUNT(*) as deals,
+				SUM(CASE WHEN s.type = 'Won' THEN 1 ELSE 0 END) as won_deals
+			FROM `tabCRM Deal` d
+			JOIN `tabCRM Deal Status` s ON d.status = s.name
+			WHERE DATE(d.creation) BETWEEN %(from_date)s AND %(to_date)s
+			  {deal_user_cond}
+			GROUP BY DATE(d.creation)
+		) u
+		GROUP BY u.date
+		ORDER BY u.date
+	"""
+	result = frappe.db.sql(query, params, as_dict=True)
 
 	sales_trend = [
 		{
 			"date": frappe.utils.get_datetime(row.date).strftime("%Y-%m-%d"),
-			"leads": row.leads or 0,
+			"prospects": row.prospects or 0,
+			"leads": row.prospects or 0,
 			"deals": row.deals or 0,
 			"won_deals": row.won_deals or 0,
 		}
@@ -636,7 +654,7 @@ def get_sales_trend(from_date: str | None = None, to_date: str | None = None, us
 	return {
 		"data": sales_trend,
 		"title": _("Sales trend"),
-		"subtitle": _("Daily performance of leads, deals, and wins"),
+		"subtitle": _("Daily performance of prospects, deals, and wins"),
 		"xAxis": {
 			"title": _("Date"),
 			"key": "date",
@@ -647,7 +665,7 @@ def get_sales_trend(from_date: str | None = None, to_date: str | None = None, us
 			"title": _("Count"),
 		},
 		"series": [
-			{"name": "leads", "type": "line", "showDataPoints": True},
+			{"name": "prospects", "type": "line", "showDataPoints": True},
 			{"name": "deals", "type": "line", "showDataPoints": True},
 			{"name": "won_deals", "type": "line", "showDataPoints": True},
 		],
@@ -737,7 +755,7 @@ def get_funnel_conversion(from_date: str | None = None, to_date: str | None = No
 	"""
 	Get funnel conversion data for the dashboard.
 	[
-		{ stage: 'Leads', count: 120 },
+		{ stage: 'Prospects', count: 120 },
 		{ stage: 'Qualification', count: 100 },
 		{ stage: 'Negotiation', count: 80 },
 		{ stage: 'Ready to Close', count: 60 },
@@ -745,47 +763,45 @@ def get_funnel_conversion(from_date: str | None = None, to_date: str | None = No
 		...
 	]
 	"""
-	lead_conds = ""
-	deal_conds = ""
-
 	if not from_date or not to_date:
 		from_date = frappe.utils.get_first_day(from_date or frappe.utils.nowdate())
 		to_date = frappe.utils.get_last_day(to_date or frappe.utils.nowdate())
 
-	lead_filters = {"from": from_date, "to": to_date}
+	contact_user_cond = ""
+	deal_conds = ""
 	deal_filters = {"from": from_date, "to": to_date}
+	params = {"from_date": from_date, "to_date": to_date}
 
 	if user:
-		lead_conds += " AND lead_owner = %(user)s"
+		from crm.api.security import get_contact_permission_conditions
+
+		perm_cond = get_contact_permission_conditions(user)
+		if perm_cond:
+			contact_user_cond = f" AND ({perm_cond})"
 		deal_conds += " AND deal_owner = %(user)s"
-		lead_filters["user"] = user
 		deal_filters["user"] = user
 
 	result = []
 
-	# Get total leads using Query Builder
-	CRMLead = DocType("CRM Lead")
+	# Get total prospects using Contact table
+	prospect_query = f"""
+		SELECT COUNT(DISTINCT name) as count
+		FROM `tabContact`
+		WHERE DATE(creation) BETWEEN %(from_date)s AND %(to_date)s
+		  AND (custom_is_dropped = 0 OR custom_is_dropped IS NULL)
+		  {contact_user_cond}
+	"""
+	total_prospects = frappe.db.sql(prospect_query, params, as_dict=True)
+	total_prospects_count = total_prospects[0].count if total_prospects else 0
 
-	query = (
-		frappe.qb.from_(CRMLead)
-		.select(Count("*").as_("count"))
-		.where(Date(CRMLead.creation).between(from_date, to_date))
-	)
-
-	if user:
-		query = query.where(CRMLead.lead_owner == user)
-
-	total_leads = query.run(as_dict=True)
-	total_leads_count = total_leads[0].count if total_leads else 0
-
-	result.append({"stage": "Leads", "count": total_leads_count})
+	result.append({"stage": _("Prospects"), "count": total_prospects_count})
 
 	result += get_deal_status_change_counts(from_date, to_date, deal_conds, deal_filters)
 
 	return {
 		"data": result or [],
 		"title": _("Funnel conversion"),
-		"subtitle": _("Lead to deal conversion pipeline"),
+		"subtitle": _("Prospect to deal conversion pipeline"),
 		"xAxis": {
 			"title": _("Stage"),
 			"key": "stage",
@@ -952,40 +968,45 @@ def get_lost_deal_reasons(from_date: str | None = None, to_date: str | None = No
 
 def get_leads_by_source(from_date: str | None = None, to_date: str | None = None, user: str | None = None):
 	"""
-	Get lead data by source for the dashboard.
-	[
-		{ source: 'Website', count: 120 },
-		{ source: 'Referral', count: 45 },
-		...
-	]
+	Get prospect data by source for the dashboard.
+	Contacts do not currently store a source field, so this returns an empty list without error.
 	"""
 	if not from_date or not to_date:
 		from_date = frappe.utils.get_first_day(from_date or frappe.utils.nowdate())
 		to_date = frappe.utils.get_last_day(to_date or frappe.utils.nowdate())
 
-	# Using Frappe Query Builder (safer, more maintainable)
-	CRMLead = DocType("CRM Lead")
+	result = []
+	if frappe.db.has_column("Contact", "source"):
+		user_cond = ""
+		params = {"from_date": from_date, "to_date": to_date}
+		if user:
+			from crm.api.security import get_contact_permission_conditions
 
-	query = (
-		frappe.qb.from_(CRMLead)
-		.select(IfNull(CRMLead.source, "Empty").as_("source"), Count("*").as_("count"))
-		.where(Date(CRMLead.creation).between(from_date, to_date))
-		.groupby(CRMLead.source)
-		.orderby(Count("*"), order=frappe.qb.desc)
-	)
+			perm_cond = get_contact_permission_conditions(user)
+			if perm_cond:
+				user_cond = f" AND ({perm_cond})"
 
-	if user:
-		query = query.where(CRMLead.lead_owner == user)
-
-	result = query.run(as_dict=True)
+		query = f"""
+			SELECT IFNULL(source, 'Empty') as source, COUNT(DISTINCT name) as count
+			FROM `tabContact`
+			WHERE DATE(creation) BETWEEN %(from_date)s AND %(to_date)s
+			  AND (custom_is_dropped = 0 OR custom_is_dropped IS NULL)
+			  {user_cond}
+			GROUP BY source
+			ORDER BY count DESC
+		"""
+		result = frappe.db.sql(query, params, as_dict=True)
 
 	return {
 		"data": result or [],
-		"title": _("Leads by source"),
-		"subtitle": _("Lead generation channel analysis"),
+		"title": _("Prospects by source"),
+		"subtitle": _("Prospect generation channel analysis"),
 		"categoryColumn": "source",
 		"valueColumn": "count",
 	}
+
+
+get_prospects_by_source = get_leads_by_source
 
 
 def get_deals_by_source(from_date: str | None = None, to_date: str | None = None, user: str | None = None):

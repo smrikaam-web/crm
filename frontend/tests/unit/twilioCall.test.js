@@ -1,0 +1,223 @@
+import { describe, it, expect } from 'vitest'
+import {
+  validateTokenResponse,
+  mapTwilioSignalingStatus,
+  extractCallErrorMessage,
+  canInitiateCall,
+  sanitizePhoneNumber,
+  DIALPAD_KEYS,
+} from '@/utils/twilioCall'
+
+describe('validateTokenResponse', () => {
+  it('returns false for null or undefined input', () => {
+    expect(validateTokenResponse(null)).toEqual({
+      ok: false,
+      error: 'empty_response',
+      message: 'Invalid response from telephony service.',
+    })
+    expect(validateTokenResponse(undefined)).toEqual({
+      ok: false,
+      error: 'empty_response',
+      message: 'Invalid response from telephony service.',
+    })
+  })
+
+  it('handles caller_phone_identity_missing correctly with fallback message', () => {
+    const res = validateTokenResponse({
+      ok: false,
+      error: 'caller_phone_identity_missing',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('caller_phone_identity_missing')
+    expect(res.message).toBe(
+      'Your account is not configured with a Twilio phone number. Please contact your administrator.',
+    )
+  })
+
+  it('preserves backend detail message if provided for missing caller phone', () => {
+    const res = validateTokenResponse({
+      ok: false,
+      error: 'caller_phone_identity_missing',
+      detail: 'Phone number is not mapped to the caller',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('caller_phone_identity_missing')
+    expect(res.message).toBe('Phone number is not mapped to the caller')
+  })
+
+  it('handles twilio_not_configured with appropriate administrator guidance', () => {
+    const res = validateTokenResponse({
+      ok: false,
+      error: 'twilio_not_configured',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('twilio_not_configured')
+    expect(res.message).toBe(
+      'Twilio configuration is missing. Please contact your administrator.',
+    )
+  })
+
+  it('returns ok: true and extracts token when token is present', () => {
+    const res = validateTokenResponse({
+      ok: true,
+      token: 'jwt.mock.token.123',
+    })
+    expect(res.ok).toBe(true)
+    expect(res.token).toBe('jwt.mock.token.123')
+  })
+
+  it('handles missing token when ok is not explicitly false', () => {
+    const res = validateTokenResponse({})
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('token_generation_failed')
+  })
+})
+
+describe('mapTwilioSignalingStatus', () => {
+  it('maps initiating and ringing statuses', () => {
+    expect(mapTwilioSignalingStatus('queued')).toBe('initiating')
+    expect(mapTwilioSignalingStatus('initiated')).toBe('initiating')
+    expect(mapTwilioSignalingStatus('ringing')).toBe('ringing')
+    expect(mapTwilioSignalingStatus('early-media')).toBe('ringing')
+  })
+
+  it('maps connected and in-progress statuses', () => {
+    expect(mapTwilioSignalingStatus('in-progress')).toBe('connected')
+    expect(mapTwilioSignalingStatus('inprogress')).toBe('connected')
+    expect(mapTwilioSignalingStatus('answered')).toBe('connected')
+  })
+
+  it('maps terminal statuses', () => {
+    expect(mapTwilioSignalingStatus('busy')).toBe('busy')
+    expect(mapTwilioSignalingStatus('no-answer')).toBe('no-answer')
+    expect(mapTwilioSignalingStatus('failed')).toBe('failed')
+    expect(mapTwilioSignalingStatus('canceled')).toBe('failed')
+    expect(mapTwilioSignalingStatus('completed')).toBe('completed')
+  })
+
+  it('returns unknown for unrecognized status', () => {
+    expect(mapTwilioSignalingStatus('xyz_unknown')).toBe('unknown')
+    expect(mapTwilioSignalingStatus('')).toBe('unknown')
+    expect(mapTwilioSignalingStatus(null)).toBe('unknown')
+  })
+})
+
+describe('extractCallErrorMessage', () => {
+  it('formats microphone permission denial clearly', () => {
+    const error = new Error('Permission denied by user')
+    error.name = 'NotAllowedError'
+    expect(extractCallErrorMessage(error)).toBe(
+      'Microphone access was denied. Please allow microphone permissions in your browser.',
+    )
+  })
+
+  it('formats Twilio gateway connection failure', () => {
+    const error = { code: 31005, message: 'Connection to gateway failed' }
+    expect(extractCallErrorMessage(error)).toBe(
+      'Unable to connect to Twilio voice servers. Please check your network connection.',
+    )
+  })
+
+  it('formats invalid phone number format error', () => {
+    const error = { code: 21210, message: "The 'To' number is not a valid phone number" }
+    expect(extractCallErrorMessage(error)).toBe(
+      'The recipient phone number is invalid. Please verify the international format (e.g. +1234567890).',
+    )
+  })
+
+  it('formats unready Twilio device error', () => {
+    const error = new Error('Twilio device not ready')
+    expect(extractCallErrorMessage(error)).toBe(
+      'Twilio calling device is not ready. Please verify your phone mapping and reload.',
+    )
+  })
+
+  it('falls back to error message or default text', () => {
+    expect(extractCallErrorMessage(new Error('Custom error'))).toBe('Custom error')
+    expect(extractCallErrorMessage(null)).toBe('Call could not be completed.')
+  })
+})
+
+describe('canInitiateCall', () => {
+  it('blocks call if phone number is missing or empty', () => {
+    expect(canInitiateCall({ mobileNumber: '' })).toEqual({
+      canCall: false,
+      reason: 'missing_number',
+    })
+    expect(canInitiateCall({ mobileNumber: '   ' })).toEqual({
+      canCall: false,
+      reason: 'missing_number',
+    })
+  })
+
+  it('blocks call if another call is currently initiating', () => {
+    expect(
+      canInitiateCall({
+        mobileNumber: '+1234567890',
+        isMakingCall: true,
+        isCallActive: false,
+      }),
+    ).toEqual({
+      canCall: false,
+      reason: 'call_already_initiating',
+    })
+  })
+
+  it('blocks call if a call is already active or in progress', () => {
+    expect(
+      canInitiateCall({
+        mobileNumber: '+1234567890',
+        isMakingCall: false,
+        isCallActive: true,
+      }),
+    ).toEqual({
+      canCall: false,
+      reason: 'call_already_active',
+    })
+  })
+
+  it('blocks call if phone number contains fewer than 3 digits without dtmf', () => {
+    expect(canInitiateCall({ mobileNumber: '12' })).toEqual({
+      canCall: false,
+      reason: 'invalid_number',
+    })
+  })
+
+  it('allows call when number is provided and no calls are active or initiating', () => {
+    expect(
+      canInitiateCall({
+        mobileNumber: '+1234567890',
+        isMakingCall: false,
+        isCallActive: false,
+      }),
+    ).toEqual({
+      canCall: true,
+    })
+  })
+})
+
+describe('sanitizePhoneNumber', () => {
+  it('strips parentheses, spaces and hyphens while preserving international +', () => {
+    expect(sanitizePhoneNumber('+1 (555) 123-4567')).toBe('+15551234567')
+    expect(sanitizePhoneNumber('+91 98765-43210')).toBe('+919876543210')
+  })
+
+  it('preserves clean digits and DTMF characters', () => {
+    expect(sanitizePhoneNumber('9876543210')).toBe('9876543210')
+    expect(sanitizePhoneNumber('*123#')).toBe('*123#')
+  })
+
+  it('handles empty or non-string inputs gracefully', () => {
+    expect(sanitizePhoneNumber('')).toBe('')
+    expect(sanitizePhoneNumber(null)).toBe('')
+    expect(sanitizePhoneNumber(undefined)).toBe('')
+  })
+})
+
+describe('DIALPAD_KEYS', () => {
+  it('contains standard 12 dial pad keys', () => {
+    expect(DIALPAD_KEYS).toHaveLength(12)
+    const digits = DIALPAD_KEYS.map((k) => k.digit)
+    expect(digits).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'])
+  })
+})

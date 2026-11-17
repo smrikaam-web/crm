@@ -69,15 +69,15 @@ const chartTypes = [
 
 const numberChart = ref('')
 const numberCharts = [
-  { label: __('Total Leads'), value: 'total_leads' },
+  { label: __('No. of Prospects'), value: 'no_of_prospects' },
   { label: __('Ongoing Deals'), value: 'ongoing_deals' },
   { label: __('Avg Ongoing Deal Value'), value: 'average_ongoing_deal_value' },
   { label: __('Won Deals'), value: 'won_deals' },
   { label: __('Avg Won Deal Value'), value: 'average_won_deal_value' },
   { label: __('Avg Deal Value'), value: 'average_deal_value' },
   {
-    label: __('Avg Time to Close a Lead'),
-    value: 'average_time_to_close_a_lead',
+    label: __('Avg Time to Close a Prospect'),
+    value: 'average_time_to_close_a_prospect',
   },
   {
     label: __('Avg Time to Close a Deal'),
@@ -99,7 +99,7 @@ const axisCharts = [
 const donutChart = ref('deals_by_stage_donut')
 const donutCharts = [
   { label: __('Deals by Stage'), value: 'deals_by_stage_donut' },
-  { label: __('Leads by Source'), value: 'leads_by_source' },
+  { label: __('Prospects by Source'), value: 'prospects_by_source' },
   { label: __('Deals by Source'), value: 'deals_by_source' },
 ]
 

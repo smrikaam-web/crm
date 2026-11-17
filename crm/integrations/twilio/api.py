@@ -33,22 +33,97 @@ def is_enabled():
 
 
 @frappe.whitelist()
+def check_twilio_configuration():
+	"""Validates the complete Twilio setup and returns detailed configuration status."""
+	settings = frappe.get_doc("CRM Twilio Settings")
+	agent_number = frappe.db.get_value("CRM Telephony Agent", frappe.session.user, "twilio_number") or ""
+
+	missing_fields = []
+	if not settings.enabled:
+		missing_fields.append(_("Twilio Integration is Disabled"))
+	if not settings.account_sid:
+		missing_fields.append("Account SID")
+	if not settings.api_key:
+		missing_fields.append("API Key")
+	has_api_secret = bool(settings.get_password("api_secret", raise_exception=False))
+	if not has_api_secret:
+		missing_fields.append("API Secret")
+	if not settings.twiml_sid:
+		missing_fields.append("TwiML Application SID")
+	if not agent_number:
+		missing_fields.append(_("Caller Twilio Phone Number (CRM Telephony Agent)"))
+
+	return {
+		"enabled": bool(settings.enabled),
+		"account_sid": bool(settings.account_sid),
+		"api_key": bool(settings.api_key),
+		"api_secret": has_api_secret,
+		"twiml_sid": bool(settings.twiml_sid),
+		"agent_number": agent_number,
+		"is_configured": len(missing_fields) == 0,
+		"missing_fields": missing_fields,
+		"record_calls": bool(settings.record_calls),
+		"enable_live_transcription": bool(getattr(settings, "enable_live_transcription", False)),
+	}
+
+
+@frappe.whitelist()
 def generate_access_token():
 	"""Returns access token that is required to authenticate Twilio Client SDK."""
-	twilio = Twilio.connect()
-	if not twilio:
-		return {}
+	settings = frappe.get_doc("CRM Twilio Settings")
+	if not (settings and settings.enabled):
+		return {
+			"ok": False,
+			"error": "twilio_not_configured",
+			"detail": _("Twilio configuration is missing. Please contact your administrator."),
+		}
+
+	missing = []
+	if not settings.account_sid:
+		missing.append("Account SID")
+	if not settings.api_key:
+		missing.append("API Key")
+	if not settings.get_password("api_secret", raise_exception=False):
+		missing.append("API Secret")
+	if not settings.twiml_sid:
+		missing.append("TwiML Application SID")
+
+	if missing:
+		return {
+			"ok": False,
+			"error": "twilio_credentials_missing",
+			"detail": _("Twilio configuration is incomplete. Missing settings: {0}. Please contact your administrator.").format(", ".join(missing)),
+		}
 
 	from_number = frappe.db.get_value("CRM Telephony Agent", frappe.session.user, "twilio_number")
 	if not from_number:
 		return {
 			"ok": False,
 			"error": "caller_phone_identity_missing",
-			"detail": "Phone number is not mapped to the caller",
+			"detail": _("Your account is not configured with a Twilio phone number. Please contact your administrator."),
 		}
 
-	token = twilio.generate_voice_access_token(identity=frappe.session.user)
-	return {"token": frappe.safe_decode(token)}
+	try:
+		twilio = Twilio(settings=settings)
+		token = twilio.generate_voice_access_token(identity=frappe.session.user)
+		if not token:
+			return {
+				"ok": False,
+				"error": "token_generation_failed",
+				"detail": _("Failed to generate Twilio access token. Please verify Twilio settings."),
+			}
+
+		return {
+			"ok": True,
+			"token": frappe.safe_decode(token),
+		}
+	except Exception as exc:
+		frappe.log_error(title="Failed to generate Twilio voice access token")
+		return {
+			"ok": False,
+			"error": "token_generation_failed",
+			"detail": _("Failed to generate Twilio access token: {0}").format(str(exc)),
+		}
 
 
 # webhook authenticity is enforced by validate_twilio_request(); guest access itself is unchanged
