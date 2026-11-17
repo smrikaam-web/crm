@@ -199,7 +199,10 @@
             </div>
 
             <!-- Call Activity Card -->
-            <div v-else-if="item.activity_type === 'call'" class="flex flex-col gap-2">
+            <div
+              v-else-if="item.activity_type === 'call'"
+              class="flex flex-col gap-2 rounded-lg border border-outline-gray-2 bg-surface-white p-3.5 shadow-xs transition-colors hover:border-outline-gray-3"
+            >
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                   <span
@@ -212,8 +215,17 @@
                     {{ item.activity_title }}
                   </div>
                 </div>
-                <div class="text-xs text-ink-gray-5">
-                  {{ formatActivityDate(item.date) }}
+                <div class="flex items-center gap-2">
+                  <div class="text-xs text-ink-gray-5">
+                    {{ formatActivityDate(item.date) }}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="!h-6 !px-2 text-xs text-ink-gray-7 hover:bg-surface-gray-2"
+                    :label="__('Details')"
+                    @click="openCallLogDetail(item.name)"
+                  />
                 </div>
               </div>
 
@@ -249,6 +261,10 @@
 
                 <div v-if="item.recording_url" class="mt-1">
                   <AudioPlayer :src="item.recording_url" />
+                </div>
+                <div v-else-if="item.recording_status === 'processing'" class="mt-1 flex items-center gap-1.5 text-xs text-ink-gray-5 italic">
+                  <span class="lucide-loader-2 size-3 animate-spin" />
+                  <span>{{ __('Recording Processing...') }}</span>
                 </div>
               </div>
             </div>
@@ -430,7 +446,7 @@
           <div
             v-for="call in callsList"
             :key="call.name"
-            class="rounded-lg border border-outline-gray-2 bg-surface-white p-4 shadow-xs flex flex-col gap-2.5"
+            class="rounded-lg border border-outline-gray-2 bg-surface-white p-4 shadow-xs flex flex-col gap-2.5 transition-colors hover:border-outline-gray-3"
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -449,7 +465,16 @@
                   {{ call.status }}
                 </Badge>
               </div>
-              <span class="text-xs text-ink-gray-5">{{ formatActivityDate(call.date) }}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-ink-gray-5">{{ formatActivityDate(call.date) }}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="!h-6 !px-2 text-xs text-ink-gray-7 hover:bg-surface-gray-2"
+                  :label="__('Details')"
+                  @click="openCallLogDetail(call.name)"
+                />
+              </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-md bg-surface-gray-1 p-3 text-xs border border-outline-gray-2">
@@ -480,6 +505,10 @@
 
             <div v-if="call.recording_url" class="mt-1">
               <AudioPlayer :src="call.recording_url" />
+            </div>
+            <div v-else-if="call.recording_status === 'processing'" class="mt-1 flex items-center gap-1.5 text-xs text-ink-gray-5 italic">
+              <span class="lucide-loader-2 size-3 animate-spin" />
+              <span>{{ __('Recording Processing...') }}</span>
             </div>
           </div>
         </div>
@@ -1037,6 +1066,12 @@
         </div>
       </template>
     </Dialog>
+
+    <!-- 7. Call Log Detail Modal -->
+    <CallLogDetailModal
+      v-model="showCallLogDetailModal"
+      v-model:callLog="activeCallLogResource"
+    />
   </div>
 </template>
 
@@ -1053,11 +1088,13 @@ import EmptyState from '@/components/ListViews/EmptyState.vue'
 import DealsListView from '@/components/ListViews/DealsListView.vue'
 import AudioPlayer from '@/components/Activities/AudioPlayer.vue'
 import VisualEmailEditor from '@/components/VisualEmailEditor.vue'
+import CallLogDetailModal from '@/components/Modals/CallLogDetailModal.vue'
+import { globalStore } from '@/stores/global'
 import { Badge, Button, Dialog, Dropdown, Avatar, FileUploader, toast, createResource, call } from 'frappe-ui'
 import { Editor, EditorContent, EditorFixedMenu } from 'frappe-ui/editor'
 import { buildEditorExtensions, formToolbar } from '@/components/editor/config'
 import { formatDate, sanitizeHTML } from '@/utils'
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   contact: { type: Object, default: () => ({}) },
@@ -1080,6 +1117,35 @@ const showNoteModal = ref(false)
 const showMeetingModal = ref(false)
 const showEmailModal = ref(false)
 const showTemplateModal = ref(false)
+const showCallLogDetailModal = ref(false)
+const activeCallLogResource = ref({})
+
+function openCallLogDetail(callName) {
+  if (!callName) return
+  showCallLogDetailModal.value = true
+  activeCallLogResource.value = createResource({
+    url: 'crm.fcrm.doctype.crm_call_log.crm_call_log.get_call_log',
+    params: { name: callName },
+    cache: ['call_log', callName],
+    auto: true,
+  })
+}
+
+const { $socket } = globalStore()
+
+onMounted(() => {
+  if ($socket) {
+    $socket.on('crm:call_updated', () => {
+      activitiesResource.reload()
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  if ($socket) {
+    $socket.off('crm:call_updated')
+  }
+})
 const showCcBcc = ref(false)
 const emailSending = ref(false)
 const emailComposerMode = ref('edit')

@@ -134,6 +134,10 @@ class CRMCallLog(Document):
 				return True
 
 	def link_with_reference_doc(self, reference_doctype, reference_name):
+		if not self.reference_doctype:
+			self.reference_doctype = reference_doctype
+			self.reference_docname = reference_name
+
 		if self.has_link(reference_doctype, reference_name):
 			return
 
@@ -196,17 +200,19 @@ def parse_call_log(call):
 
 
 def get_call_contact(call, phone_number):
-	"""The lead or deal the call points to, or the best match for the number when it
-	points to neither. Two records can share a number, so once the call points to a
-	record the number is never used to guess who it was."""
+	"""The prospect/contact, lead, or deal the call points to, or the best match for the number."""
 	doctype, name = call.get("reference_doctype"), call.get("reference_docname")
-	if doctype not in ("CRM Lead", "CRM Deal") or not name:
-		return get_contact_by_phone_number(phone_number)
+	if doctype == "Contact" and name:
+		if not frappe.has_permission("Contact", "read", name):
+			return {}
+		contact = frappe.db.get_value("Contact", name, ["full_name", "image"], as_dict=True)
+		return contact or {}
+	elif doctype in ("CRM Lead", "CRM Deal") and name:
+		if not frappe.has_permission(doctype, "read", name):
+			return {}
+		return get_reference_contact(doctype, name) or {}
 
-	if not frappe.has_permission(doctype, "read", name):
-		return {}
-
-	return get_reference_contact(doctype, name) or {}
+	return get_contact_by_phone_number(phone_number) or {}
 
 
 def get_reference_contact(doctype, name):

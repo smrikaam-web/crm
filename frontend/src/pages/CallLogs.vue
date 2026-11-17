@@ -79,9 +79,10 @@ import EmptyState from '@/components/ListViews/EmptyState.vue'
 import CallLogDetailModal from '@/components/Modals/CallLogDetailModal.vue'
 import { useDoctypeModal } from '@/composables/doctypeModal'
 import { getCallLogDetail } from '@/utils/callLog'
+import { globalStore } from '@/stores/global'
 import { useTelemetry } from '@framework/ui/telemetry'
 import { createResource } from 'frappe-ui'
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 
 const callLogsListView = ref(null)
 
@@ -163,7 +164,22 @@ const openCallLogFromURL = () => {
   }
 }
 
+const { $socket } = globalStore()
+
+const handleCallUpdated = () => {
+  callLogs.value?.reload?.()
+}
+
 onMounted(() => {
   openCallLogFromURL()
+  if ($socket) {
+    $socket.on('crm:call_updated', handleCallUpdated)
+  }
+})
+
+onBeforeUnmount(() => {
+  if ($socket) {
+    $socket.off('crm:call_updated', handleCallUpdated)
+  }
 })
 </script>

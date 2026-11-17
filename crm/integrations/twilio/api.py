@@ -184,53 +184,171 @@ def _call_failed_response():
 	return resp
 
 
+def find_call_log(call_sid: str):
+	"""Find CRM Call Log by CallSid (checks name, id, or resolves child leg via Twilio)."""
+	if not call_sid:
+		return None
+
+	# 1. Direct match by name
+	if frappe.db.exists("CRM Call Log", call_sid):
+		return frappe.get_doc("CRM Call Log", call_sid)
+
+	# 2. Match by id field
+	name_by_id = frappe.db.get_value("CRM Call Log", {"id": call_sid}, "name")
+	if name_by_id:
+		return frappe.get_doc("CRM Call Log", name_by_id)
+
+	# 3. If call_sid is a child leg, lookup parent SID from Twilio API
+	try:
+		twilio = Twilio.connect()
+		if twilio:
+			call_info = twilio.get_call_info(call_sid)
+			parent_sid = getattr(call_info, "parent_call_sid", None)
+			if parent_sid:
+				if frappe.db.exists("CRM Call Log", parent_sid):
+					return frappe.get_doc("CRM Call Log", parent_sid)
+				name_by_parent = frappe.db.get_value("CRM Call Log", {"id": parent_sid}, "name")
+				if name_by_parent:
+					return frappe.get_doc("CRM Call Log", name_by_parent)
+	except Exception:
+		pass
+
+	return None
+
+
 def create_call_log(call_details: TwilioCallDetails):
 	details = call_details.to_dict()
+	call_sid = details.get("id")
 
-	call_log = frappe.get_doc({**details, "doctype": "CRM Call Log", "telephony_medium": "Twilio"})
+	# Idempotent: return existing call log if already created
+	existing_log = find_call_log(call_sid)
+	if existing_log:
+		return existing_log
 
-	# link call log with lead/deal
+	call_log = frappe.get_doc({
+		**details,
+		"doctype": "CRM Call Log",
+		"telephony_medium": "Twilio",
+	})
+
+	# link call log with prospect / contact / lead / deal
 	contact_number = details.get("from") if details.get("type") == "Incoming" else details.get("to")
 	link(contact_number, call_log)
 
 	call_log.save(ignore_permissions=True)
 	frappe.db.commit()
+
+	frappe.publish_realtime(
+		"crm:call_updated",
+		{
+			"call_log": call_log.name,
+			"status": call_log.status,
+			"type": call_log.type,
+			"duration": call_log.duration,
+		},
+		after_commit=True,
+	)
 	return call_log
 
 
 def link(contact_number, call_log):
-	contact = get_contact_by_phone_number(contact_number)
-	if contact.get("name"):
-		doctype = "Contact"
-		docname = contact.get("name")
-		if contact.get("lead"):
-			doctype = "CRM Lead"
-			docname = contact.get("lead")
-		elif contact.get("deal"):
-			doctype = "CRM Deal"
-			docname = contact.get("deal")
-		call_log.link_with_reference_doc(doctype, docname)
-
-
-def update_call_log(call_sid, status=None):
-	"""Update call log status."""
-	twilio = Twilio.connect()
-	if not (twilio and frappe.db.exists("CRM Call Log", call_sid)):
+	if not contact_number:
 		return
 
+	contact = get_contact_by_phone_number(contact_number)
+	if contact and contact.get("name"):
+		contact_name = contact.get("name")
+		# Always link Contact
+		call_log.link_with_reference_doc("Contact", contact_name)
+
+		# Ensure primary reference points to Contact
+		if not call_log.reference_doctype or call_log.reference_doctype == "Contact":
+			call_log.reference_doctype = "Contact"
+			call_log.reference_docname = contact_name
+
+		# Also link associated Deal and Lead if present
+		if contact.get("deal"):
+			call_log.link_with_reference_doc("CRM Deal", contact.get("deal"))
+		if contact.get("lead"):
+			call_log.link_with_reference_doc("CRM Lead", contact.get("lead"))
+	elif contact and contact.get("lead"):
+		lead_name = contact.get("lead")
+		call_log.link_with_reference_doc("CRM Lead", lead_name)
+		if not call_log.reference_doctype:
+			call_log.reference_doctype = "CRM Lead"
+			call_log.reference_docname = lead_name
+
+
+def _parse_datetime_field(val):
+	if not val:
+		return None
+	if hasattr(val, "strftime"):
+		return get_datetime_from_timestamp(val)
 	try:
-		call_details = twilio.get_call_info(call_sid)
-		call_log = frappe.get_doc("CRM Call Log", call_sid)
-		call_log.status = TwilioCallDetails.get_call_status(status or call_details.status)
-		call_log.duration = call_details.duration
-		call_log.start_time = get_datetime_from_timestamp(call_details.start_time)
-		call_log.end_time = get_datetime_from_timestamp(call_details.end_time)
+		return str(frappe.utils.get_datetime(val))
+	except Exception:
+		return None
+
+
+def update_call_log(call_sid, status=None, duration=None, start_time=None, end_time=None):
+	"""Update call log status and details."""
+	call_log = find_call_log(call_sid)
+	if not call_log:
+		return None
+
+	try:
+		twilio = Twilio.connect()
+		if twilio:
+			try:
+				call_details = twilio.get_call_info(call_sid)
+				if not status and hasattr(call_details, "status") and call_details.status:
+					status = call_details.status
+				if duration is None and hasattr(call_details, "duration") and call_details.duration is not None:
+					duration = call_details.duration
+				if not start_time and hasattr(call_details, "start_time") and call_details.start_time:
+					start_time = call_details.start_time
+				if not end_time and hasattr(call_details, "end_time") and call_details.end_time:
+					end_time = call_details.end_time
+			except Exception:
+				pass
+
+		if status:
+			call_log.status = TwilioCallDetails.get_call_status(status)
+
+		if duration is not None:
+			try:
+				call_log.duration = int(duration)
+			except (ValueError, TypeError):
+				pass
+
+		if start_time:
+			parsed_start = _parse_datetime_field(start_time)
+			if parsed_start:
+				call_log.start_time = parsed_start
+
+		if end_time:
+			parsed_end = _parse_datetime_field(end_time)
+			if parsed_end:
+				call_log.end_time = parsed_end
+
 		call_log.save(ignore_permissions=True)
 		frappe.db.commit()
+
+		frappe.publish_realtime(
+			"crm:call_updated",
+			{
+				"call_log": call_log.name,
+				"status": call_log.status,
+				"duration": call_log.duration,
+				"recording_url": call_log.recording_url,
+			},
+			after_commit=True,
+		)
 		return call_log
 	except Exception:
 		frappe.log_error(title="Error while updating call record")
 		frappe.db.commit()
+		return call_log
 
 
 def get_twilio_settings():
@@ -242,15 +360,46 @@ def update_recording_info(**kwargs):
 	args = frappe._dict(kwargs)
 	validate_twilio_request(args)
 
-	recording_url = args.RecordingUrl
-	call_sid = args.CallSid
-	call_log = update_call_log(call_sid)
+	recording_url = args.get("RecordingUrl")
+	call_sid = args.get("CallSid")
+	if not recording_url or not call_sid:
+		frappe.throw(_("Missing recording parameters"), frappe.ValidationError)
+
+	call_log = find_call_log(call_sid)
 	if not call_log:
 		frappe.throw(_("Call log not found"), frappe.DoesNotExistError)
 
 	try:
-		frappe.db.set_value("CRM Call Log", call_sid, "recording_url", recording_url)
+		# If Twilio recording URL lacks audio format extension, append .mp3
+		if recording_url.startswith("https://api.twilio.com") and not recording_url.endswith((".mp3", ".wav")):
+			recording_url = f"{recording_url}.mp3"
+
+		call_log.recording_url = recording_url
+
+		# Update duration from RecordingDuration if available and duration is not set
+		if args.get("RecordingDuration") and (not call_log.duration or call_log.duration == 0):
+			try:
+				call_log.duration = int(args.get("RecordingDuration"))
+			except (ValueError, TypeError):
+				pass
+
+		if call_log.status in ("Initiated", "Ringing", "In Progress"):
+			call_log.status = "Completed"
+
+		call_log.save(ignore_permissions=True)
 		frappe.db.commit()
+
+		frappe.publish_realtime(
+			"crm:call_updated",
+			{
+				"call_log": call_log.name,
+				"status": call_log.status,
+				"recording_url": call_log.recording_url,
+				"duration": call_log.duration,
+			},
+			after_commit=True,
+		)
+		return {"status": "success", "call_log": call_log.name}
 	except Exception as exc:
 		frappe.log_error(title=_("Failed to capture Twilio recording"))
 		raise exc
@@ -261,26 +410,33 @@ def update_call_status_info(**kwargs):
 	args = frappe._dict(kwargs)
 	validate_twilio_request(args)
 
-	parent_call_sid = args.ParentCallSid
-	call_log = update_call_log(parent_call_sid, status=args.CallStatus)
+	target_sid = args.get("ParentCallSid") or args.get("CallSid")
+	call_log = update_call_log(
+		target_sid,
+		status=args.get("CallStatus"),
+		duration=args.get("CallDuration"),
+	)
 	if not call_log:
 		frappe.throw(_("Call log not found"), frappe.DoesNotExistError)
 
 	call_info = {
-		"ParentCallSid": args.ParentCallSid,
-		"CallSid": args.CallSid,
-		"CallStatus": args.CallStatus,
-		"CallDuration": args.CallDuration,
-		"From": args.From,
-		"To": args.To,
+		"ParentCallSid": args.get("ParentCallSid"),
+		"CallSid": args.get("CallSid"),
+		"CallStatus": args.get("CallStatus"),
+		"CallDuration": args.get("CallDuration"),
+		"From": args.get("From"),
+		"To": args.get("To"),
 	}
 
-	try:
-		client = Twilio.get_twilio_client()
-		client.calls(args.ParentCallSid).user_defined_messages.create(content=json.dumps(call_info))
-	except Exception as exc:
-		frappe.log_error(title=_("Failed to update Twilio call status"))
-		raise exc
+	# Send user-defined message to active call if supported (ignore if call already ended)
+	if args.get("ParentCallSid"):
+		try:
+			client = Twilio.get_twilio_client()
+			client.calls(args.ParentCallSid).user_defined_messages.create(content=json.dumps(call_info))
+		except Exception:
+			pass
+
+	return {"status": "success", "call_log": call_log.name}
 
 
 def get_datetime_from_timestamp(timestamp):

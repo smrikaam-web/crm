@@ -203,6 +203,10 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 	contact_doc = frappe.get_doc("Contact", contact)
 	emails = [e.email_id.strip() for e in contact_doc.email_ids if e.email_id]
 	phones = [p.phone.strip() for p in contact_doc.phone_nos if p.phone]
+	if contact_doc.mobile_no and contact_doc.mobile_no.strip() not in phones:
+		phones.append(contact_doc.mobile_no.strip())
+	if contact_doc.phone and contact_doc.phone.strip() not in phones:
+		phones.append(contact_doc.phone.strip())
 
 	# Find linked CRM Leads (by matching email or direct link)
 	leads = []
@@ -219,8 +223,23 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 		for c in frappe.db.get_all("CRM Call Log", filters={"reference_doctype": "CRM Lead", "reference_docname": l}, pluck="name"):
 			call_names_pre.add(c)
 	for p in phones:
-		for c in frappe.db.sql("SELECT name FROM `tabCRM Call Log` WHERE `from` = %s OR `to` = %s", (p, p), as_dict=True):
-			call_names_pre.add(c.name)
+		cleaned_digits = "".join(ch for ch in p if ch.isdigit())
+		if len(cleaned_digits) >= 7:
+			suffix = cleaned_digits[-10:] if len(cleaned_digits) >= 10 else cleaned_digits
+			matching_calls = frappe.db.sql(
+				"""
+				SELECT name FROM `tabCRM Call Log`
+				WHERE REPLACE(REPLACE(REPLACE(REPLACE(`from`, ' ', ''), '-', ''), '(', ''), ')', '') LIKE %s
+				   OR REPLACE(REPLACE(REPLACE(REPLACE(`to`, ' ', ''), '-', ''), '(', ''), ')', '') LIKE %s
+				""",
+				(f"%{suffix}%", f"%{suffix}%"),
+				as_dict=True,
+			)
+			for c in matching_calls:
+				call_names_pre.add(c.name)
+		else:
+			for c in frappe.db.sql("SELECT name FROM `tabCRM Call Log` WHERE `from` = %s OR `to` = %s", (p, p), as_dict=True):
+				call_names_pre.add(c.name)
 
 	call_attached_notes = set()
 	if call_names_pre:
@@ -290,6 +309,8 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 			],
 			order_by="creation desc",
 		)
+		twilio_recording_enabled = bool(frappe.db.get_single_value("CRM Twilio Settings", "record_calls"))
+
 		for c in raw_calls:
 			note_text = ""
 			if c.note:
@@ -300,6 +321,20 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 			user_id = c.caller if call_type == "Outgoing" else c.receiver
 			user_name = (frappe.db.get_value("User", user_id, "full_name") if user_id else None) or user_id or c.owner or "User"
 			phone_no = c.to if call_type == "Outgoing" else getattr(c, "from")
+
+			recording_path = ""
+			if c.recording_url:
+				if c.recording_url.startswith(("/files/", "/private/files/")):
+					recording_path = c.recording_url
+				else:
+					recording_path = f"/api/method/crm.integrations.api.get_recording_url?call_log_name={c.name}"
+
+			if recording_path:
+				rec_status = "available"
+			elif twilio_recording_enabled and (c.status in ("Completed", "In Progress", "Ringing")) and dur > 0:
+				rec_status = "processing"
+			else:
+				rec_status = "none"
 
 			calls_list.append({
 				"activity_type": "call",
@@ -318,8 +353,14 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 				"date": str(c.start_time or c.creation),
 				"creation": str(c.creation),
 				"note": note_text,
-				"recording_url": c.recording_url or "",
-				"activity_title": _("{0} had a call with this prospect").format(user_name),
+				"recording_url": recording_path,
+				"recording_status": rec_status,
+				"has_recording": bool(recording_path),
+				"activity_title": (
+					_("{0} called this prospect").format(user_name)
+					if call_type == "Outgoing"
+					else _("{0} received a call").format(user_name)
+				),
 			})
 
 	# ---------------------------------------------------------

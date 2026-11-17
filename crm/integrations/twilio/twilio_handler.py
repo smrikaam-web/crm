@@ -96,12 +96,19 @@ class Twilio:
 		"""Generates voice call instructions to forward the call to agents Phone."""
 		resp = VoiceResponse()
 		self.append_transcription_if_enabled(resp, direction=direction)
-		dial = Dial(
-			caller_id=from_number,
-			record=self.settings.record_calls,
-			recording_status_callback=self.get_recording_status_callback_url(),
-			recording_status_callback_event="completed",
-		)
+
+		dial_kwargs = {"caller_id": from_number}
+		if self.settings.record_calls:
+			dial_kwargs.update({
+				"record": "record-from-answer",
+				"recording_status_callback": self.get_recording_status_callback_url(),
+				"recording_status_callback_event": "completed",
+				"recording_status_callback_method": "POST",
+			})
+		else:
+			dial_kwargs["record"] = "do-not-record"
+
+		dial = Dial(**dial_kwargs)
 		dial.number(
 			to_number,
 			status_callback_event="initiated ringing answered completed",
@@ -118,12 +125,19 @@ class Twilio:
 		"""Generates voice call instructions to forward the call to agents computer."""
 		resp = VoiceResponse()
 		self.append_transcription_if_enabled(resp, direction="Incoming")
-		dial = Dial(
-			ring_tone=ring_tone,
-			record=self.settings.record_calls,
-			recording_status_callback=self.get_recording_status_callback_url(),
-			recording_status_callback_event="completed",
-		)
+
+		client_dial_kwargs = {"ring_tone": ring_tone}
+		if self.settings.record_calls:
+			client_dial_kwargs.update({
+				"record": "record-from-answer",
+				"recording_status_callback": self.get_recording_status_callback_url(),
+				"recording_status_callback_event": "completed",
+				"recording_status_callback_method": "POST",
+			})
+		else:
+			client_dial_kwargs["record"] = "do-not-record"
+
+		dial = Dial(**client_dial_kwargs)
 		dial.client(
 			client,
 			status_callback_event="initiated ringing answered completed",
@@ -244,7 +258,8 @@ class TwilioCallDetails:
 		self._call_to = call_to or call_info.get("To")
 
 	def get_direction(self):
-		if self.call_info.get("Caller").lower().startswith("client"):
+		caller = self.call_info.get("Caller") or self.call_info.get("From") or ""
+		if str(caller).lower().startswith("client"):
 			return "Outgoing"
 		return "Incoming"
 

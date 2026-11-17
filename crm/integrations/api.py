@@ -24,7 +24,12 @@ def _get_recording_credentials(telephony_medium: str) -> tuple | None:
 	if telephony_medium == "Twilio":
 		s = frappe.get_single("CRM Twilio Settings")
 		secret = s.get_password("api_secret", raise_exception=False)
-		return (s.api_key, secret) if s.api_key and secret else None
+		if s.api_key and secret:
+			return (s.api_key, secret)
+		auth_token = s.get_password("auth_token", raise_exception=False)
+		if s.account_sid and auth_token:
+			return (s.account_sid, auth_token)
+		return None
 	elif telephony_medium == "Exotel":
 		s = frappe.get_single("CRM Exotel Settings")
 		token = s.get_password("api_token", raise_exception=False)
@@ -264,6 +269,10 @@ def get_recording_url(call_log_name: str):
 	if not log.recording_url:
 		frappe.throw(_("Recording URL not found"), frappe.DoesNotExistError)
 
+	target_url = log.recording_url
+	if log.telephony_medium == "Twilio" and target_url.startswith("https://api.twilio.com") and not target_url.endswith((".mp3", ".wav")):
+		target_url = f"{target_url}.mp3"
+
 	auth = _get_recording_credentials(log.telephony_medium)
 	# forward the browser's Range header so the provider (Twilio/Exotel CDN) can return
 	# just the requested bytes; falls back to the full file if it doesn't support ranges
@@ -275,7 +284,7 @@ def get_recording_url(call_log_name: str):
 	# stream instead of buffering the whole file: the provider's Content-Length reaches
 	# the browser immediately so the <audio> element can show the duration right away,
 	# rather than waiting for the entire recording to download server-side first
-	upstream = _fetch_recording(log.recording_url, auth, req_headers)
+	upstream = _fetch_recording(target_url, auth, req_headers)
 	upstream.raise_for_status()
 
 	def _stream():
