@@ -260,6 +260,13 @@ def get_daily_allocation_summary(date: str | None = None) -> dict[str, Any]:
 			"completed": 0,
 		}
 
+	# Pre-fetch user full names for any unlisted assigned users
+	missing_users = {a.assigned_to for a in all_allocations if a.assigned_to and a.assigned_to not in user_stats}
+	extra_name_map = {}
+	if missing_users:
+		extra_users = frappe.get_all("User", filters={"name": ["in", list(missing_users)]}, fields=["name", "full_name"])
+		extra_name_map = {u.name: u.full_name or u.name for u in extra_users}
+
 	total_tasks = len(all_allocations)
 	tot_to_do = 0
 	tot_in_progress = 0
@@ -306,7 +313,7 @@ def get_daily_allocation_summary(date: str | None = None) -> dict[str, Any]:
 				user_stats[assigned_user]["pending"] += 1
 		else:
 			# If user was assigned in DB but not in current active user list
-			user_full_name = frappe.db.get_value("User", assigned_user, "full_name") or assigned_user
+			user_full_name = extra_name_map.get(assigned_user) or assigned_user
 			user_stats[assigned_user] = {
 				"user": assigned_user,
 				"full_name": user_full_name,
@@ -407,8 +414,40 @@ def get_allocated_tasks(
 		for c in contacts_data:
 			contact_meta[c.name] = c
 
-	# Cache user names for display
+	# Batch cache user names for display in a single query
+	all_user_ids = {row.assigned_to for row in query if row.assigned_to} | {row.allocated_by for row in query if row.allocated_by}
 	user_names = {}
+	if all_user_ids:
+		u_records = frappe.get_all("User", filters={"name": ["in", list(all_user_ids)]}, fields=["name", "full_name"])
+		for u in u_records:
+			user_names[u.name] = u.full_name or u.name
+
+	# Batch resolve countries for contacts/orgs lacking country
+	contacts_needing_country = {row.contact for row in query if not row.country and row.contact}
+	orgs_needing_country = {row.organization for row in query if not row.country and row.organization}
+	batched_countries = {}
+	if contacts_needing_country or orgs_needing_country:
+		conditions = []
+		params = {}
+		if contacts_needing_country:
+			conditions.append("(dl.link_doctype = 'Contact' AND dl.link_name IN %(contacts)s)")
+			params["contacts"] = tuple(contacts_needing_country)
+		if orgs_needing_country:
+			conditions.append("(dl.link_doctype = 'CRM Organization' AND dl.link_name IN %(orgs)s)")
+			params["orgs"] = tuple(orgs_needing_country)
+		if conditions:
+			where_sql = " OR ".join(conditions)
+			addr_rows = frappe.db.sql(f"""
+				SELECT dl.link_doctype, dl.link_name, a.country
+				FROM `tabAddress` a
+				JOIN `tabDynamic Link` dl ON dl.parent = a.name
+				WHERE ({where_sql}) AND (a.country IS NOT NULL AND a.country != '')
+				ORDER BY a.creation DESC
+			""", params, as_dict=True)
+			for ar in addr_rows:
+				k = (ar.link_doctype, ar.link_name)
+				if k not in batched_countries:
+					batched_countries[k] = ar.country
 
 	results = []
 	search_lower = (search or "").strip().lower()
@@ -435,16 +474,16 @@ def get_allocated_tasks(
 
 		assigned_id = row.assigned_to
 		if assigned_id not in user_names:
-			user_names[assigned_id] = frappe.db.get_value("User", assigned_id, "full_name") or assigned_id
+			user_names[assigned_id] = assigned_id
 
 		alloc_by_id = row.allocated_by
 		if alloc_by_id not in user_names:
-			user_names[alloc_by_id] = frappe.db.get_value("User", alloc_by_id, "full_name") or alloc_by_id
+			user_names[alloc_by_id] = alloc_by_id
 
-		# Country and Timezone resolution
+		# Country and Timezone resolution (using batched country lookup)
 		c_val = row.get("country")
 		if not c_val:
-			c_val = resolve_country_for_contact(row.contact, row.organization)
+			c_val = batched_countries.get(("Contact", row.contact)) or batched_countries.get(("CRM Organization", row.organization))
 		display_country = c_val or "Not Available"
 
 		tz_val = row.get("timezone")

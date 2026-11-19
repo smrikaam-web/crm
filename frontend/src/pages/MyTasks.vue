@@ -120,13 +120,13 @@
             </Badge>
 
             <!-- Selected items indicator & Three-Dot Bulk Actions -->
-            <template v-if="selectedTaskIds.length">
+            <template v-if="selectedCount">
               <Badge
                 variant="solid"
                 size="sm"
                 class="bg-surface-gray-9 text-surface-white dark:bg-surface-white dark:text-ink-gray-9"
               >
-                {{ selectedTaskIds.length }} {{ __('selected') }}
+                {{ selectedCount }} {{ __('selected') }}
               </Badge>
 
               <!-- Three-Dot Bulk Actions Dropdown -->
@@ -182,15 +182,15 @@
                 v-for="task in filteredTasks"
                 :key="task.name"
                 class="cursor-pointer transition-colors hover:bg-surface-gray-2/70 dark:hover:bg-surface-gray-8/70"
-                :class="{ 'bg-surface-gray-1/40 dark:bg-surface-gray-8/30': selectedTaskIds.includes(task.name) }"
+                :class="{ 'bg-surface-gray-1/40 dark:bg-surface-gray-8/30': selectedTaskSet.has(task.name) }"
                 @click="handleRowClick(task)"
               >
                 <!-- Row Checkbox -->
                 <td class="w-[3%] px-1.5 py-1.5 text-center shrink-0" @click.stop>
                   <input
                     type="checkbox"
-                    :value="task.name"
-                    v-model="selectedTaskIds"
+                    :checked="selectedTaskSet.has(task.name)"
+                    @change="toggleTaskSelection(task.name, $event.target.checked)"
                     class="size-3.5 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0"
                     @click.stop
                   />
@@ -244,32 +244,30 @@
 
                 <!-- 5. Country -->
                 <td class="w-[6.5%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
-                  <div class="truncate text-[11px] leading-tight" :title="(task.country && task.country !== 'Not Available') ? task.country : ''">
-                    {{ (task.country && task.country !== 'Not Available') ? task.country : '—' }}
+                  <div class="truncate text-[11px] leading-tight" :title="task._displayCountry || ''">
+                    {{ task._displayCountry || '—' }}
                   </div>
                 </td>
 
                 <!-- 6. Timezone -->
                 <td class="w-[9%] px-2 py-1.5 font-mono text-[10.5px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
-                  <div class="truncate" :title="(task.timezone && task.timezone !== 'Not Available') ? task.timezone : ''">
-                    {{ (task.timezone && task.timezone !== 'Not Available') ? formatTimezone(task.timezone) : '—' }}
+                  <div class="truncate" :title="task._displayTimezone || ''">
+                    {{ task._displayTimezone || '—' }}
                   </div>
                 </td>
 
                 <!-- 7. Data Age -->
                 <td class="w-[6%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
-                  <Tooltip v-if="task.creation" :text="formatDateTime(task.creation)">
-                    <div class="truncate">{{ formatDataAge(task.creation) }}</div>
-                  </Tooltip>
-                  <span v-else class="text-ink-gray-4">—</span>
+                  <div class="truncate" :title="task._formattedCreation || ''">
+                    {{ task._dataAge || '—' }}
+                  </div>
                 </td>
 
                 <!-- 8. Last Updated -->
                 <td class="w-[7.5%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
-                  <Tooltip v-if="task.modified" :text="formatDateTime(task.modified)">
-                    <div class="truncate">{{ formatTimeAgo(task.modified) }}</div>
-                  </Tooltip>
-                  <span v-else class="text-ink-gray-4">—</span>
+                  <div class="truncate" :title="task._formattedModified || ''">
+                    {{ task._timeAgo || '—' }}
+                  </div>
                 </td>
 
                 <!-- 9. Assigned By -->
@@ -728,11 +726,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, reactive, computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { call, Button, Dialog, Badge, Dropdown, Tooltip, toast } from 'frappe-ui'
-import { Editor, EditorContent, EditorFixedMenu } from 'frappe-ui/editor'
-import { buildEditorExtensions, formToolbar } from '@/components/editor/config'
 import { globalStore } from '@/stores/global'
 import { formatDate, timeAgo } from '@/utils'
 import { callEnabled } from '@/composables/telephony'
@@ -776,7 +772,24 @@ const searchQuery = ref('')
 
 const tasks = ref([])
 const assignableUsers = ref([])
-const selectedTaskIds = ref([])
+const selectedTaskSet = shallowRef(new Set())
+const selectedTaskIds = computed({
+  get: () => Array.from(selectedTaskSet.value),
+  set: (newIds) => {
+    selectedTaskSet.value = new Set(newIds || [])
+  },
+})
+const selectedCount = computed(() => selectedTaskSet.value.size)
+
+function toggleTaskSelection(name, checked) {
+  const newSet = new Set(selectedTaskSet.value)
+  if (checked) {
+    newSet.add(name)
+  } else {
+    newSet.delete(name)
+  }
+  selectedTaskSet.value = newSet
+}
 const headerCheckboxRef = ref(null)
 
 // Single Edit Modal
@@ -890,7 +903,15 @@ function handlePhoneAction(task) {
   makeCall(task.mobile_no)
 }
 
+const taskDropdownCache = new WeakMap()
+
 function getStatusDropdownOptions(task) {
+  if (!task) return []
+  const cached = taskDropdownCache.get(task)
+  if (cached && cached.status === task.status) {
+    return cached.options
+  }
+
   const options = myTaskStatuses.map((st) => ({
     label: st + (task.status === st ? ' ✓' : ''),
     onClick: () => handleStatusChange(task, st),
@@ -908,6 +929,7 @@ function getStatusDropdownOptions(task) {
     onClick: () => openTaskCall(task),
   })
 
+  taskDropdownCache.set(task, { status: task.status, options })
   return options
 }
 
@@ -1289,7 +1311,19 @@ async function fetchTasks() {
       params.user = selectedUser.value
     }
 
-    tasks.value = await call('crm.api.daily_allocation.get_allocated_tasks', params)
+    const rawTasks = await call('crm.api.daily_allocation.get_allocated_tasks', params)
+    if (Array.isArray(rawTasks)) {
+      for (let i = 0; i < rawTasks.length; i++) {
+        const t = rawTasks[i]
+        t._displayCountry = (t.country && t.country !== 'Not Available') ? t.country : ''
+        t._displayTimezone = (t.timezone && t.timezone !== 'Not Available') ? formatTimezone(t.timezone) : ''
+        t._formattedCreation = t.creation ? formatDateTime(t.creation) : ''
+        t._dataAge = t.creation ? formatDataAge(t.creation) : ''
+        t._formattedModified = t.modified ? formatDateTime(t.modified) : ''
+        t._timeAgo = t.modified ? formatTimeAgo(t.modified) : ''
+      }
+    }
+    tasks.value = rawTasks || []
   } catch (error) {
     console.error('Error fetching tasks in MyTask:', error)
   } finally {
@@ -1297,41 +1331,71 @@ async function fetchTasks() {
   }
 }
 
+const statusCounts = computed(() => {
+  const counts = {}
+  const list = tasks.value || []
+  for (let i = 0; i < list.length; i++) {
+    const st = list[i].status
+    counts[st] = (counts[st] || 0) + 1
+  }
+  return counts
+})
+
 function getCountForStatus(statusVal) {
-  if (!tasks.value) return 0
-  return tasks.value.filter((t) => t.status === statusVal).length
+  return statusCounts.value[statusVal] || 0
 }
 
 const filteredTasks = computed(() => {
-  let list = tasks.value || []
-  list = list.filter((t) => t.status === currentStatus.value)
+  const list = tasks.value || []
+  const st = currentStatus.value
+  const query = searchQuery.value.trim().toLowerCase()
 
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.trim().toLowerCase()
-    list = list.filter((t) =>
-      (t.contact_name || '').toLowerCase().includes(q) ||
-      (t.organization || '').toLowerCase().includes(q) ||
-      (t.designation || '').toLowerCase().includes(q) ||
-      (t.email || '').toLowerCase().includes(q) ||
-      (t.mobile_no || '').toLowerCase().includes(q) ||
-      (t.country || '').toLowerCase().includes(q) ||
-      (t.timezone || '').toLowerCase().includes(q) ||
-      (t.notes || '').toLowerCase().includes(q)
-    )
+  const result = []
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i]
+    if (t.status !== st) continue
+    if (query) {
+      const match =
+        (t.contact_name && t.contact_name.toLowerCase().includes(query)) ||
+        (t.organization && t.organization.toLowerCase().includes(query)) ||
+        (t.designation && t.designation.toLowerCase().includes(query)) ||
+        (t.email && t.email.toLowerCase().includes(query)) ||
+        (t.mobile_no && t.mobile_no.toLowerCase().includes(query)) ||
+        (t.country && t.country.toLowerCase().includes(query)) ||
+        (t.timezone && t.timezone.toLowerCase().includes(query)) ||
+        (t.notes && t.notes.toLowerCase().includes(query))
+      if (!match) continue
+    }
+    result.push(t)
   }
-  return list
+  return result
 })
 
 // Checkbox selection computed & indeterminate state
 const isAllSelected = computed(() => {
-  if (!filteredTasks.value.length) return false
-  return filteredTasks.value.every((t) => selectedTaskIds.value.includes(t.name))
+  const visible = filteredTasks.value
+  if (!visible.length) return false
+  const s = selectedTaskSet.value
+  for (let i = 0; i < visible.length; i++) {
+    if (!s.has(visible[i].name)) return false
+  }
+  return true
 })
 
 const isIndeterminate = computed(() => {
-  if (!filteredTasks.value.length) return false
-  const selectedCount = filteredTasks.value.filter((t) => selectedTaskIds.value.includes(t.name)).length
-  return selectedCount > 0 && selectedCount < filteredTasks.value.length
+  const visible = filteredTasks.value
+  if (!visible.length) return false
+  const s = selectedTaskSet.value
+  let sel = 0
+  for (let i = 0; i < visible.length; i++) {
+    if (s.has(visible[i].name)) {
+      sel++
+      if (sel < i + 1) return true
+    } else if (sel > 0) {
+      return true
+    }
+  }
+  return false
 })
 
 watchEffect(() => {
@@ -1342,14 +1406,18 @@ watchEffect(() => {
 
 function toggleSelectAll(event) {
   const checked = event.target.checked
-  const currentVisibleIds = filteredTasks.value.map((t) => t.name)
+  const newSet = new Set(selectedTaskSet.value)
+  const currentVisible = filteredTasks.value
   if (checked) {
-    const newSet = new Set(selectedTaskIds.value)
-    currentVisibleIds.forEach((id) => newSet.add(id))
-    selectedTaskIds.value = Array.from(newSet)
+    for (let i = 0; i < currentVisible.length; i++) {
+      newSet.add(currentVisible[i].name)
+    }
   } else {
-    selectedTaskIds.value = selectedTaskIds.value.filter((id) => !currentVisibleIds.includes(id))
+    for (let i = 0; i < currentVisible.length; i++) {
+      newSet.delete(currentVisible[i].name)
+    }
   }
+  selectedTaskSet.value = newSet
 }
 
 function getStatusBadgeClass(status) {

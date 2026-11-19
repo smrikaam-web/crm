@@ -58,9 +58,8 @@ def get_dashboard(from_date: str | None = None, to_date: str | None = None, user
 		elif l.get("name") in ("leads_by_source", "prospects_by_source"):
 			l["tooltip"] = _("Prospects by source")
 
-		method_name = f"get_{l['name']}"
-		if hasattr(frappe.get_attr("crm.api.dashboard"), method_name):
-			method = getattr(frappe.get_attr("crm.api.dashboard"), method_name)
+		method = globals().get(f"get_{l['name']}")
+		if callable(method):
 			l["data"] = method(from_date, to_date, user)
 		else:
 			l["data"] = None
@@ -87,9 +86,8 @@ def get_chart(
 	if is_sales_user:
 		user = frappe.session.user
 
-	method_name = f"get_{name}"
-	if hasattr(frappe.get_attr("crm.api.dashboard"), method_name):
-		method = getattr(frappe.get_attr("crm.api.dashboard"), method_name)
+	method = globals().get(f"get_{name}")
+	if callable(method):
 		return method(from_date, to_date, user)
 	else:
 		return {"error": _("Invalid chart name")}
