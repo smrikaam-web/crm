@@ -83,8 +83,9 @@ const routes = [
     path: '/tasks/prospect/:contactId',
     name: 'TaskProspect',
     component: () => import('@/pages/TaskProspectDetail.vue'),
+    meta: { hideSidebar: true },
     props: (route) => ({
-      contactId: route.params.contactId,
+      contactId: decodeURIComponent(route.params.contactId || ''),
       taskId: route.query.taskId || null,
     }),
   },

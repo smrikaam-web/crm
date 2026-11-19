@@ -150,31 +150,31 @@
           </div>
         </div>
 
-        <!-- Task Table: Dense, compact 10-column prospect table with optimized column spacing -->
+        <!-- Task Table: Dense, compact 10-column prospect table with uniform, responsive layout -->
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[1080px] text-left text-xs">
+          <table class="w-full table-fixed text-left text-xs">
             <thead class="bg-surface-gray-1 text-ink-gray-5 border-b border-outline-gray-2 dark:bg-surface-gray-8 dark:border-outline-gray-7">
               <tr>
-                <th class="w-10 px-3 py-2 text-center shrink-0">
+                <th class="w-[3%] px-1.5 py-1.5 text-center shrink-0">
                   <input
                     ref="headerCheckboxRef"
                     type="checkbox"
                     :checked="isAllSelected"
                     :disabled="!filteredTasks.length"
-                    class="size-4 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0 disabled:opacity-40"
+                    class="size-3.5 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0 disabled:opacity-40"
                     @change="toggleSelectAll"
                   />
                 </th>
-                <th class="w-[18%] min-w-[160px] max-w-[220px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Name') }}</th>
-                <th class="w-[14%] min-w-[120px] max-w-[170px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Designation') }}</th>
-                <th class="w-[16%] min-w-[150px] max-w-[210px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Email') }}</th>
-                <th class="w-[11%] min-w-[115px] max-w-[145px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Phone') }}</th>
-                <th class="w-[8%] min-w-[85px] max-w-[110px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Country') }}</th>
-                <th class="w-[9%] min-w-[95px] max-w-[120px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Timezone') }}</th>
-                <th class="w-[6%] min-w-[70px] max-w-[90px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Data Age') }}</th>
-                <th class="w-[7%] min-w-[80px] max-w-[100px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Last Updated') }}</th>
-                <th class="w-[8%] min-w-[90px] max-w-[115px] px-3 py-2 font-medium uppercase tracking-wider text-[11px]">{{ __('Assigned By') }}</th>
-                <th class="w-24 min-w-[96px] px-3 py-2 font-medium uppercase tracking-wider text-[11px] text-right shrink-0">{{ __('Actions') }}</th>
+                <th class="w-[16%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Name') }}</th>
+                <th class="w-[10%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Designation') }}</th>
+                <th class="w-[15%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Email') }}</th>
+                <th class="w-[9.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Phone') }}</th>
+                <th class="w-[6.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Country') }}</th>
+                <th class="w-[9%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Timezone') }}</th>
+                <th class="w-[6%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Data Age') }}</th>
+                <th class="w-[7.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Last Updated') }}</th>
+                <th class="w-[9.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Assigned By') }}</th>
+                <th class="w-[8%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px] text-right shrink-0">{{ __('Actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-outline-gray-2 dark:divide-outline-gray-7">
@@ -186,33 +186,35 @@
                 @click="handleRowClick(task)"
               >
                 <!-- Row Checkbox -->
-                <td class="w-10 px-3 py-2 text-center shrink-0" @click.stop>
+                <td class="w-[3%] px-1.5 py-1.5 text-center shrink-0" @click.stop>
                   <input
                     type="checkbox"
                     :value="task.name"
                     v-model="selectedTaskIds"
-                    class="size-4 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0"
+                    class="size-3.5 cursor-pointer rounded border-outline-gray-3 text-ink-primary focus:ring-0"
                     @click.stop
                   />
                 </td>
 
                 <!-- 1. Name & Organization underneath -->
-                <td class="w-[18%] min-w-[160px] max-w-[220px] px-3 py-2">
-                  <div class="flex flex-col min-w-0 max-w-[220px]">
+                <td class="w-[16%] px-2 py-1.5">
+                  <div class="flex flex-col min-w-0">
                     <router-link
                       :to="{
                         name: 'TaskProspect',
                         params: { contactId: task.contact },
                         query: { taskId: task.name },
                       }"
-                      class="truncate font-semibold text-ink-gray-9 hover:underline hover:text-ink-primary dark:text-ink-white"
+                      class="truncate text-[11.5px] font-semibold leading-tight text-ink-gray-9 hover:underline hover:text-ink-primary dark:text-ink-white"
+                      :title="task.contact_name || task.prospect_name || ''"
                       @click.stop
                     >
                       {{ task.contact_name || task.prospect_name || '—' }}
                     </router-link>
                     <span
                       v-if="task.organization"
-                      class="truncate text-xs text-ink-gray-5 dark:text-ink-gray-4"
+                      class="truncate text-[10px] leading-tight text-ink-gray-5 dark:text-ink-gray-4"
+                      :title="task.organization"
                     >
                       {{ task.organization }}
                     </span>
@@ -220,72 +222,72 @@
                 </td>
 
                 <!-- 2. Designation -->
-                <td class="w-[14%] min-w-[120px] max-w-[170px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
-                  <div class="truncate max-w-[170px]">
+                <td class="w-[10%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate text-[11px] leading-tight" :title="task.designation || ''">
                     {{ task.designation || '—' }}
                   </div>
                 </td>
 
                 <!-- 3. Email -->
-                <td class="w-[16%] min-w-[150px] max-w-[210px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3">
-                  <div class="truncate max-w-[210px]">
+                <td class="w-[15%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3">
+                  <div class="truncate text-[11px] leading-tight" :title="task.email || ''">
                     {{ task.email || '—' }}
                   </div>
                 </td>
 
                 <!-- 4. Phone -->
-                <td class="w-[11%] min-w-[115px] max-w-[145px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3">
-                  <div class="truncate max-w-[145px] whitespace-nowrap">
+                <td class="w-[9.5%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                  <div class="truncate text-[11px] leading-tight" :title="task.mobile_no || ''">
                     {{ task.mobile_no || '—' }}
                   </div>
                 </td>
 
                 <!-- 5. Country -->
-                <td class="w-[8%] min-w-[85px] max-w-[110px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
-                  <div class="truncate max-w-[110px]">
+                <td class="w-[6.5%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate text-[11px] leading-tight" :title="(task.country && task.country !== 'Not Available') ? task.country : ''">
                     {{ (task.country && task.country !== 'Not Available') ? task.country : '—' }}
                   </div>
                 </td>
 
                 <!-- 6. Timezone -->
-                <td class="w-[9%] min-w-[95px] max-w-[120px] px-3 py-2 font-mono text-xs text-ink-gray-7 dark:text-ink-gray-3">
-                  <div class="truncate max-w-[120px]">
+                <td class="w-[9%] px-2 py-1.5 font-mono text-[10.5px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                  <div class="truncate" :title="(task.timezone && task.timezone !== 'Not Available') ? task.timezone : ''">
                     {{ (task.timezone && task.timezone !== 'Not Available') ? formatTimezone(task.timezone) : '—' }}
                   </div>
                 </td>
 
                 <!-- 7. Data Age -->
-                <td class="w-[6%] min-w-[70px] max-w-[90px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[6%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <Tooltip v-if="task.creation" :text="formatDateTime(task.creation)">
-                    <div>{{ formatDataAge(task.creation) }}</div>
+                    <div class="truncate">{{ formatDataAge(task.creation) }}</div>
                   </Tooltip>
                   <span v-else class="text-ink-gray-4">—</span>
                 </td>
 
                 <!-- 8. Last Updated -->
-                <td class="w-[7%] min-w-[80px] max-w-[100px] px-3 py-2 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[7.5%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <Tooltip v-if="task.modified" :text="formatDateTime(task.modified)">
-                    <div>{{ formatTimeAgo(task.modified) }}</div>
+                    <div class="truncate">{{ formatTimeAgo(task.modified) }}</div>
                   </Tooltip>
                   <span v-else class="text-ink-gray-4">—</span>
                 </td>
 
                 <!-- 9. Assigned By -->
-                <td class="w-[8%] min-w-[90px] max-w-[115px] px-3 py-2 text-ink-gray-8 dark:text-ink-gray-2">
-                  <div class="truncate max-w-[115px]">
+                <td class="w-[9.5%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate text-[11px] leading-tight" :title="task.allocated_by_name || task.allocated_by || ''">
                     {{ task.allocated_by_name || task.allocated_by || '—' }}
                   </div>
                 </td>
 
                 <!-- 10. Actions Column: 1. Email, 2. Phone, 3. Pencil/Edit -->
-                <td class="w-24 min-w-[96px] px-3 py-2 text-right whitespace-nowrap shrink-0" @click.stop>
-                  <div class="inline-flex items-center gap-1.5 justify-end" @click.stop>
+                <td class="w-[8%] px-2 py-1.5 text-right whitespace-nowrap shrink-0" @click.stop>
+                  <div class="inline-flex items-center gap-1 justify-end" @click.stop>
                     <!-- 1. Email icon -->
                     <Button
                       variant="subtle"
                       icon="lucide-mail"
                       :tooltip="__('Send Email')"
-                      class="!size-7 p-1 text-ink-blue-3 hover:bg-surface-blue-2"
+                      class="!size-6 p-0.5 text-ink-blue-3 hover:bg-surface-blue-2"
                       @click.stop="openTaskEmail(task)"
                     />
                     <!-- 2. Phone icon -->
@@ -293,7 +295,7 @@
                       variant="subtle"
                       icon="lucide-phone"
                       :tooltip="task.mobile_no ? __('Make Call') : __('No phone number available')"
-                      class="!size-7 p-1 text-ink-green-3 hover:bg-surface-green-2"
+                      class="!size-6 p-0.5 text-ink-green-3 hover:bg-surface-green-2"
                       :class="{ 'opacity-40': !task.mobile_no }"
                       @click.stop="handlePhoneAction(task)"
                     />
@@ -303,7 +305,7 @@
                         variant="subtle"
                         icon="lucide-edit-2"
                         :tooltip="__('Update Status')"
-                        class="!size-7 p-1 text-ink-gray-7 hover:text-ink-gray-9 hover:bg-surface-gray-2 dark:text-ink-gray-3"
+                        class="!size-6 p-0.5 text-ink-gray-7 hover:text-ink-gray-9 hover:bg-surface-gray-2 dark:text-ink-gray-3"
                         @click.stop
                       />
                     </Dropdown>
@@ -753,6 +755,9 @@ function handleRowClick(task) {
   if (selection && selection.trim().length > 0) return
 
   if (!task?.contact) return
+  try {
+    sessionStorage.setItem('active_task_' + task.name, JSON.stringify(task))
+  } catch (e) {}
   router.push({
     name: 'TaskProspect',
     params: { contactId: task.contact },

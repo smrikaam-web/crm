@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-screen w-screen">
-    <AppSidebar />
+    <AppSidebar v-if="!hideSidebar" />
     <div class="flex-1 flex flex-col h-full overflow-auto bg-surface-base">
       <AppHeader />
       <slot />
@@ -13,7 +13,14 @@ import AppSidebar from '@/components/Layouts/AppSidebar.vue'
 import AppHeader from '@/components/Layouts/AppHeader.vue'
 import GlobalModals from '@/components/Modals/GlobalModals.vue'
 import { availabilityStore } from '@/stores/availability'
+import { useRoute } from 'vue-router'
+import { computed } from 'vue'
 
 // listen for status changes from the start, not only once a picker opens
 availabilityStore()
+
+const route = useRoute()
+const hideSidebar = computed(() => {
+  return Boolean(route.meta?.hideSidebar || route.name === 'TaskProspect')
+})
 </script>

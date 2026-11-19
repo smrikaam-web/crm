@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "creation": "2026-11-19 12:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "contact",
+  "task",
+  "main_status",
+  "connected_to",
+  "activity_status",
+  "next_action",
+  "follow_up_date",
+  "call_back_date",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "contact",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Contact",
+   "options": "Contact",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "task",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Task",
+   "options": "CRM Daily Allocation",
+   "search_index": 1
+  },
+  {
+   "fieldname": "main_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Main Status",
+   "options": "Contacted\nNot Contacted\nNot Valid",
+   "reqd": 1
+  },
+  {
+   "default": "Decision Maker (already confirmed)",
+   "fieldname": "connected_to",
+   "fieldtype": "Data",
+   "label": "Connected to"
+  },
+  {
+   "fieldname": "activity_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Activity Status",
+   "options": "Portfolio Sent\nRequirement Gathered\nCall Back\nNot Interested\nFollow Up"
+  },
+  {
+   "fieldname": "next_action",
+   "fieldtype": "Data",
+   "label": "Next Action"
+  },
+  {
+   "fieldname": "follow_up_date",
+   "fieldtype": "Date",
+   "label": "Follow Up Date"
+  },
+  {
+   "fieldname": "call_back_date",
+   "fieldtype": "Date",
+   "label": "Call Back Date"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "reqd": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-11-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FCRM",
+ "name": "CRM Prospect Status Update",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "main_status",
+ "track_changes": 1
+}

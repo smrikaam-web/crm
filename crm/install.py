@@ -352,6 +352,31 @@ def add_contact_custom_fields():
 			"label": "Time Zone",
 			"insert_after": "custom_country",
 		},
+		{
+			"fieldname": "custom_linkedin",
+			"fieldtype": "Data",
+			"label": "LinkedIn",
+			"insert_after": "custom_timezone",
+		},
+		{
+			"fieldname": "custom_upwork",
+			"fieldtype": "Data",
+			"label": "Upwork",
+			"insert_after": "custom_linkedin",
+		},
+		{
+			"fieldname": "custom_website",
+			"fieldtype": "Data",
+			"label": "Website",
+			"insert_after": "custom_upwork",
+		},
+		{
+			"fieldname": "custom_converted_lead",
+			"fieldtype": "Link",
+			"options": "CRM Lead",
+			"label": "Converted Lead",
+			"insert_after": "custom_website",
+		},
 	]
 	fields = [field for field in fields if not meta.has_field(field["fieldname"])]
 	if not fields:

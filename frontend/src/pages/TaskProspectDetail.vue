@@ -31,9 +31,12 @@
         :actions="contact._actions"
       />
       <Button
-        :label="__('New Deal')"
-        iconLeft="lucide-plus"
-        @click="openDealModal"
+        variant="solid"
+        :label="isAlreadyConverted ? __('View Lead') : __('Convert to Lead')"
+        :iconLeft="isAlreadyConverted ? 'lucide-arrow-up-right' : 'lucide-user-check'"
+        :loading="isConverting"
+        :disabled="isConverting"
+        @click="handleConvertToLead"
       />
     </template>
   </LayoutHeader>
@@ -129,17 +132,71 @@
                 />
               </div>
 
-              <!-- Allocation info snippet -->
-              <div v-if="taskData" class="w-full rounded bg-surface-gray-1 p-2.5 text-xs text-ink-gray-6 border border-outline-gray-2 space-y-1">
-                <div class="flex items-center justify-between">
-                  <span><span class="font-medium text-ink-gray-8">{{ __('Allocated:') }}</span> {{ taskData.allocation_date }}</span>
-                  <span v-if="taskData.timezone && taskData.timezone !== 'Not Available'" class="font-mono text-[11px] text-ink-gray-5">
-                    {{ taskData.timezone }}
-                  </span>
+              <!-- Social Links (LinkedIn, Upwork, Website) -->
+              <div class="w-full flex items-center justify-between pt-1 border-t border-outline-gray-1">
+                <div class="flex items-center gap-2">
+                  <!-- LinkedIn -->
+                  <Tooltip :text="contact.doc?.custom_linkedin ? __('Open LinkedIn Profile') : __('LinkedIn URL not set')">
+                    <button
+                      type="button"
+                      class="flex size-8 items-center justify-center rounded-md border transition-all duration-150"
+                      :class="[
+                        contact.doc?.custom_linkedin
+                          ? 'border-outline-gray-2 bg-surface-white text-[#0A66C2] hover:bg-surface-blue-2 hover:border-outline-blue-2 shadow-xs cursor-pointer'
+                          : 'border-outline-gray-2 bg-surface-gray-1 text-ink-gray-4 opacity-50 cursor-not-allowed',
+                      ]"
+                      :disabled="!contact.doc?.custom_linkedin"
+                      @click="contact.doc?.custom_linkedin && openExternalUrl(contact.doc.custom_linkedin)"
+                    >
+                      <LinkedInIcon class="size-4.5" />
+                    </button>
+                  </Tooltip>
+
+                  <!-- Upwork -->
+                  <Tooltip :text="contact.doc?.custom_upwork ? __('Open Upwork Profile') : __('Upwork URL not set')">
+                    <button
+                      type="button"
+                      class="flex size-8 items-center justify-center rounded-md border transition-all duration-150"
+                      :class="[
+                        contact.doc?.custom_upwork
+                          ? 'border-outline-gray-2 bg-surface-white text-[#14A800] hover:bg-surface-green-2 hover:border-outline-green-2 shadow-xs cursor-pointer'
+                          : 'border-outline-gray-2 bg-surface-gray-1 text-ink-gray-4 opacity-50 cursor-not-allowed',
+                      ]"
+                      :disabled="!contact.doc?.custom_upwork"
+                      @click="contact.doc?.custom_upwork && openExternalUrl(contact.doc.custom_upwork)"
+                    >
+                      <UpworkIcon class="size-4.5" />
+                    </button>
+                  </Tooltip>
+
+                  <!-- Website -->
+                  <Tooltip :text="contact.doc?.custom_website ? __('Open Website') : __('Website URL not set')">
+                    <button
+                      type="button"
+                      class="flex size-8 items-center justify-center rounded-md border transition-all duration-150"
+                      :class="[
+                        contact.doc?.custom_website
+                          ? 'border-outline-gray-2 bg-surface-white text-ink-gray-8 hover:bg-surface-gray-2 hover:border-outline-gray-3 shadow-xs cursor-pointer'
+                          : 'border-outline-gray-2 bg-surface-gray-1 text-ink-gray-4 opacity-50 cursor-not-allowed',
+                      ]"
+                      :disabled="!contact.doc?.custom_website"
+                      @click="contact.doc?.custom_website && openExternalUrl(contact.doc.custom_website)"
+                    >
+                      <WebsiteIcon class="size-4.5" />
+                    </button>
+                  </Tooltip>
                 </div>
-                <div v-if="taskData.notes" class="text-ink-gray-7 truncate">
-                  <span class="font-medium">{{ __('Notes:') }}</span> {{ taskData.notes }}
-                </div>
+
+                <!-- Edit Social Links Button -->
+                <Tooltip :text="__('Edit Social Links')">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="lucide-edit-2"
+                    class="text-ink-gray-5 hover:text-ink-gray-9 !size-7"
+                    @click="showSocialModal = true"
+                  />
+                </Tooltip>
               </div>
             </div>
           </template>
@@ -158,29 +215,81 @@
       </div>
     </Resizer>
 
-    <!-- Right Side Activities Panel with allowEmail=true -->
+    <!-- Right Side Activities Panel with allowEmail=true and showUpdateStatus=true -->
     <ContactActivities
       ref="contactActivitiesRef"
       :contact="contact.doc"
-      :contactId="props.contactId"
+      :contactId="decodedContactId"
       :taskId="taskData?.name || props.taskId"
       :allowEmail="true"
+      :showUpdateStatus="true"
       :dealRows="rows"
       :dealColumns="columns"
       @newDeal="openDealModal"
       @taskStatusUpdated="onTaskStatusUpdated"
     />
   </div>
+  <div v-else-if="contact.loading" class="flex h-full w-full items-center justify-center">
+    <LoadingIndicator class="w-8 h-8 text-ink-gray-5" />
+  </div>
   <ErrorPage
-    v-else-if="errorTitle"
-    :errorTitle="errorTitle"
-    :errorMessage="errorMessage"
+    v-else-if="errorTitle || contact.error"
+    :errorTitle="errorTitle || __('Error Occurred')"
+    :errorMessage="errorMessage || contact.error?.messages?.[0] || __('Could not load prospect details.')"
   />
+  <div v-else class="flex h-full w-full items-center justify-center text-ink-gray-5 text-sm">
+    <LoadingIndicator class="w-6 h-6 mr-2 text-ink-gray-5" />
+    <span>{{ __('Loading prospect...') }}</span>
+  </div>
   <DealModal
     v-if="showDealModal"
     v-model="showDealModal"
     :defaults="dealDefaults"
   />
+
+  <!-- Edit Social Links Modal -->
+  <Dialog v-model:open="showSocialModal" :size="'sm'">
+    <template #title>
+      <div class="text-base font-semibold text-ink-gray-9">{{ __('Edit Social Links') }}</div>
+    </template>
+    <template #default>
+      <div class="space-y-3.5 py-1">
+        <div>
+          <label class="block text-xs font-medium text-ink-gray-7 mb-1">{{ __('LinkedIn Profile URL') }}</label>
+          <input
+            v-model="socialForm.linkedin"
+            type="url"
+            class="w-full rounded-md border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs focus:border-outline-gray-4 focus:outline-none"
+            placeholder="https://www.linkedin.com/in/username"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink-gray-7 mb-1">{{ __('Upwork Profile URL') }}</label>
+          <input
+            v-model="socialForm.upwork"
+            type="url"
+            class="w-full rounded-md border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs focus:border-outline-gray-4 focus:outline-none"
+            placeholder="https://www.upwork.com/freelancers/..."
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink-gray-7 mb-1">{{ __('Website URL') }}</label>
+          <input
+            v-model="socialForm.website"
+            type="url"
+            class="w-full rounded-md border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs focus:border-outline-gray-4 focus:outline-none"
+            placeholder="https://example.com"
+          />
+        </div>
+      </div>
+    </template>
+    <template #actions>
+      <div class="flex justify-end gap-2">
+        <Button variant="subtle" :label="__('Cancel')" @click="showSocialModal = false" />
+        <Button variant="solid" :label="__('Save Links')" :loading="savingSocial" @click="saveSocialLinks" />
+      </div>
+    </template>
+  </Dialog>
 </template>
 
 <script setup>
@@ -192,6 +301,9 @@ import LayoutHeader from '@/components/LayoutHeader.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import CameraIcon from '@/components/Icons/CameraIcon.vue'
 import DealsIcon from '@/components/Icons/DealsIcon.vue'
+import LinkedInIcon from '@/components/Icons/LinkedInIcon.vue'
+import UpworkIcon from '@/components/Icons/UpworkIcon.vue'
+import WebsiteIcon from '@/components/Icons/WebsiteIcon.vue'
 import DealModal from '@/components/Modals/DealModal.vue'
 import ContactActivities from '@/components/ContactActivities/ContactActivities.vue'
 import CustomActions from '@/components/CustomActions.vue'
@@ -215,10 +327,14 @@ import {
   usePageMeta,
   Dropdown,
   toast,
+  Tooltip,
+  Dialog,
+  Button,
+  LoadingIndicator,
 } from 'frappe-ui'
 import { useDoctypeModal } from '@/composables/doctypeModal'
 import { useTelemetry } from '@framework/ui/telemetry'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const { brand } = getSettings()
@@ -238,23 +354,80 @@ const props = defineProps({
 const route = useRoute()
 const router = useRouter()
 
+const decodedContactId = (() => {
+  try {
+    return decodeURIComponent(props.contactId || '')
+  } catch (e) {
+    return props.contactId || ''
+  }
+})()
+
 const errorTitle = ref('')
 const errorMessage = ref('')
 const taskData = ref(null)
+
+// Instant preload from cached task if navigating from My Tasks
+if (props.taskId) {
+  try {
+    const cached = sessionStorage.getItem('active_task_' + props.taskId)
+    if (cached) {
+      taskData.value = JSON.parse(cached)
+    }
+  } catch (e) {}
+}
 
 const {
   document: contact,
   permissions,
   scripts,
+  error,
   triggerOnRender,
-} = useDocument('Contact', props.contactId)
+} = useDocument('Contact', decodedContactId)
+
+watch(
+  error,
+  (err) => {
+    if (err) {
+      errorTitle.value = __(
+        err.exc_type === 'DoesNotExistError'
+          ? __('Prospect Not Found')
+          : __('Error Occurred'),
+      )
+      errorMessage.value = __(
+        err.messages?.[0] ||
+          err.message ||
+          __('An error occurred while loading this prospect.'),
+      )
+    } else {
+      errorTitle.value = ''
+      errorMessage.value = ''
+    }
+  },
+  { immediate: true },
+)
 
 const transformField = useContactFields(contact)
+
+const { showModal } = useDoctypeModal()
+
+function showAddressModal(_address) {
+  showModal({
+    name: _address || null,
+    doctype: 'Address',
+    callbacks: {
+      afterInsert: (d) => {
+        capture('address_created')
+        contact.doc.address = d.name
+        contact.save.submit()
+      },
+    },
+  })
+}
 
 async function fetchTaskDetails() {
   try {
     const res = await call('crm.api.daily_allocation.get_task_for_contact', {
-      contact: props.contactId,
+      contact: decodedContactId,
       task_name: props.taskId || null,
     })
     if (res) {
@@ -265,8 +438,10 @@ async function fetchTaskDetails() {
   }
 }
 
+// Fire fetchTaskDetails in parallel with useDocument
+fetchTaskDetails()
+
 onMounted(async () => {
-  await fetchTaskDetails()
   if (contact.doc) await triggerOnRender()
 })
 
@@ -277,7 +452,7 @@ const breadcrumbs = computed(() => {
       label: title.value,
       route: {
         name: 'TaskProspect',
-        params: { contactId: props.contactId },
+        params: { contactId: decodedContactId },
         query: route.query,
       },
     },
@@ -286,7 +461,7 @@ const breadcrumbs = computed(() => {
 
 const title = computed(() => {
   let t = doctypeMeta.value?.title_field || 'name'
-  return contact.doc?.[t] || props.contactId
+  return contact.doc?.[t] || decodedContactId
 })
 
 usePageMeta(() => {
@@ -366,17 +541,7 @@ function changeContactImage(file) {
   })
 }
 
-const deals = createResource({
-  url: 'crm.api.contact.get_linked_deals',
-  cache: ['deals', props.contactId],
-  params: { contact: props.contactId },
-  auto: true,
-})
-
-const rows = computed(() => {
-  if (!deals.data || !deals.data.length) return []
-  return deals.data.map((row) => getDealRowObject(row))
-})
+const rows = computed(() => [])
 
 const sections = createResource({
   url: 'crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_sidepanel_sections',
@@ -387,19 +552,119 @@ const sections = createResource({
 
 const parsedSections = computed(() => {
   if (!sections.data) return []
-  return sections.data.map((section) => ({
-    ...section,
-    columns: section.columns.map((column) => ({
-      ...column,
-      fields: column.fields.map((field) => {
-        field.label = fieldLabelMap[field.fieldname] || field.label
-        field.placeholder =
-          fieldPlaceholderMap[field.fieldname] || field.placeholder
-        return transformField(field, { showAddressModal })
-      }),
-    })),
-  }))
+  return sections.data
+    .map((section) => ({
+      ...section,
+      columns: section.columns
+        .map((column) => ({
+          ...column,
+          fields: column.fields
+            .filter((field) => ['email_id', 'mobile_no'].includes(field.fieldname))
+            .map((field) => {
+              if (field.fieldname === 'email_id') {
+                field.label = __('Email Address')
+                field.placeholder = __('Add Email Address...')
+              } else if (field.fieldname === 'mobile_no') {
+                field.label = __('Mobile Number')
+                field.placeholder = __('Add Mobile Number...')
+              } else {
+                field.label = fieldLabelMap[field.fieldname] || field.label
+                field.placeholder =
+                  fieldPlaceholderMap[field.fieldname] || field.placeholder
+              }
+              return transformField(field, { showAddressModal })
+            }),
+        }))
+        .filter((column) => column.fields.length > 0),
+    }))
+    .filter((section) => section.columns.length > 0)
 })
+
+const isConverting = ref(false)
+
+const isAlreadyConverted = computed(() => {
+  return Boolean(contact.doc?.custom_converted_lead)
+})
+
+async function handleConvertToLead() {
+  if (isAlreadyConverted.value) {
+    const leadId = contact.doc.custom_converted_lead
+    toast.info(__('Opening converted Lead {0}', [leadId]))
+    router.push({ name: 'Lead', params: { leadId } })
+    return
+  }
+
+  isConverting.value = true
+  try {
+    const res = await call('crm.api.contact.convert_contact_to_lead', {
+      contact: decodedContactId,
+      task_name: taskData.value?.name || props.taskId || null,
+    })
+    if (res?.lead_name) {
+      if (contact.doc) {
+        contact.doc.custom_converted_lead = res.lead_name
+      }
+      if (res.already_converted) {
+        toast.info(res.message || __('This prospect is already converted to Lead {0}.', [res.lead_name]))
+      } else {
+        toast.success(res.message || __('Prospect converted to Lead successfully.'))
+      }
+      router.push({ name: 'Lead', params: { leadId: res.lead_name } })
+    }
+  } catch (err) {
+    toast.error(err.messages?.[0] || err.message || __('Failed to convert prospect to Lead.'))
+  } finally {
+    isConverting.value = false
+  }
+}
+
+function openExternalUrl(url) {
+  if (!url) return
+  const fullUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`
+  window.open(fullUrl, '_blank')
+}
+
+const showSocialModal = ref(false)
+const savingSocial = ref(false)
+const socialForm = reactive({
+  linkedin: '',
+  upwork: '',
+  website: '',
+})
+
+watch(
+  () => showSocialModal.value,
+  (open) => {
+    if (open && contact.doc) {
+      socialForm.linkedin = contact.doc.custom_linkedin || ''
+      socialForm.upwork = contact.doc.custom_upwork || ''
+      socialForm.website = contact.doc.custom_website || ''
+    }
+  },
+)
+
+async function saveSocialLinks() {
+  savingSocial.value = true
+  try {
+    const res = await call('crm.api.contact.update_contact_social_links', {
+      contact: decodedContactId,
+      linkedin: socialForm.linkedin,
+      upwork: socialForm.upwork,
+      website: socialForm.website,
+    })
+    if (contact.doc) {
+      contact.doc.custom_linkedin = res.custom_linkedin
+      contact.doc.custom_upwork = res.custom_upwork
+      contact.doc.custom_website = res.custom_website
+    }
+    toast.success(__('Social links updated successfully'))
+    showSocialModal.value = false
+  } catch (err) {
+    toast.error(err.messages?.[0] || err.message || __('Failed to update social links'))
+  } finally {
+    savingSocial.value = false
+  }
+}
 
 const fieldLabelMap = {
   mobile_no: __('Mobile Number'),
@@ -475,22 +740,6 @@ const dealColumns = [
     width: '8rem',
   },
 ]
-
-const { showModal } = useDoctypeModal()
-
-function showAddressModal(_address) {
-  showModal({
-    name: _address || null,
-    doctype: 'Address',
-    callbacks: {
-      afterInsert: (d) => {
-        capture('address_created')
-        contact.doc.address = d.name
-        contact.save.submit()
-      },
-    },
-  })
-}
 
 // Setup custom actions from Form Scripts
 watch(

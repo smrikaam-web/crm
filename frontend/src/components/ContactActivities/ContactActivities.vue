@@ -88,6 +88,15 @@
           iconLeft="lucide-plus"
           @click="emit('newDeal')"
         />
+
+        <!-- Update Status Tab Action -->
+        <Button
+          v-else-if="activeTab === 'update_status'"
+          variant="solid"
+          :label="__('Create')"
+          iconLeft="lucide-plus"
+          @click="showUpdateStatusModal = true"
+        />
       </div>
     </div>
 
@@ -165,7 +174,7 @@
                   <!-- eslint-disable vue/no-v-html -->
                   <div
                     class="prose prose-xs max-w-none text-ink-gray-8"
-                    v-html="sanitizeHTML(item.content)"
+                    v-html="sanitizeHTML(item.content || getEmailContent(item.name))"
                   />
                   <!-- eslint-enable vue/no-v-html -->
                   <div v-if="item.attachments && item.attachments.length" class="mt-2 border-t pt-2">
@@ -350,6 +359,51 @@
                   <!-- eslint-disable vue/no-v-html -->
                   <span v-html="sanitizeHTML(item.description)" />
                   <!-- eslint-enable vue/no-v-html -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Status Update Activity Card -->
+            <div v-else-if="item.activity_type === 'status_update'" class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <span class="flex size-7 items-center justify-center rounded-full bg-surface-teal-2 text-ink-teal-4">
+                    <CheckCircleIcon class="size-4" />
+                  </span>
+                  <div class="text-sm font-semibold text-ink-gray-9">
+                    {{ item.activity_title }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Badge variant="solid" size="sm" :class="getMainStatusBadgeClass(item.main_status)">
+                    {{ item.main_status }}
+                  </Badge>
+                  <div class="text-xs text-ink-gray-5">
+                    {{ formatActivityDate(item.date || item.creation) }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="pl-9.5 flex flex-col gap-1.5">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge v-if="item.activity_status" variant="outline" size="sm" class="bg-surface-gray-2 text-ink-gray-8 border-outline-gray-3">
+                    {{ item.activity_status }}
+                  </Badge>
+                  <span v-if="item.connected_to" class="text-ink-gray-5">
+                    {{ item.connected_to }}
+                  </span>
+                  <span v-if="item.next_action" class="rounded px-1.5 py-0.5 bg-surface-gray-2 text-ink-gray-7 border border-outline-gray-2">
+                    {{ __('Next:') }} {{ item.next_action }}
+                  </span>
+                  <span v-if="item.follow_up_date" class="text-ink-gray-6 font-medium">
+                    {{ __('Follow-up:') }} {{ item.follow_up_date }}
+                  </span>
+                  <span v-if="item.call_back_date" class="text-ink-gray-6 font-medium">
+                    {{ __('Call on:') }} {{ item.call_back_date }}
+                  </span>
+                </div>
+                <div class="text-xs text-ink-gray-8 whitespace-pre-wrap rounded-md bg-surface-gray-1 p-2.5 border border-outline-gray-2 leading-relaxed">
+                  {{ item.description }}
                 </div>
               </div>
             </div>
@@ -643,6 +697,88 @@
           :description="__('Use New Deal to create a deal for this contact.')"
           :icon="DealsIcon"
           :onCreate="() => emit('newDeal')"
+        />
+      </div>
+
+      <!-- TAB 7: UPDATE STATUS (Prospect Status History) -->
+      <div v-else-if="activeTab === 'update_status'" class="space-y-4 max-w-4xl">
+        <div v-if="statusUpdatesList.length" class="space-y-3">
+          <div
+            v-for="item in statusUpdatesList"
+            :key="item.name"
+            class="rounded-lg border border-outline-gray-2 bg-surface-white p-4 shadow-xs flex flex-col gap-3"
+          >
+            <div class="flex items-center justify-between border-b pb-2.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant="solid"
+                  size="sm"
+                  :class="getMainStatusBadgeClass(item.main_status)"
+                >
+                  {{ item.main_status }}
+                </Badge>
+                <Badge
+                  v-if="item.activity_status"
+                  variant="outline"
+                  size="sm"
+                  class="bg-surface-gray-2 text-ink-gray-8 border-outline-gray-3"
+                >
+                  {{ item.activity_status }}
+                </Badge>
+                <span
+                  v-if="item.connected_to"
+                  class="text-xs text-ink-gray-5 flex items-center gap-1"
+                >
+                  <span class="size-1.5 rounded-full bg-surface-gray-4 inline-block" />
+                  {{ item.connected_to }}
+                </span>
+              </div>
+              <div class="text-xs text-ink-gray-5">
+                {{ formatActivityDate(item.creation || item.date) }}
+              </div>
+            </div>
+
+            <!-- Next action & follow up date details if present -->
+            <div
+              v-if="item.next_action || item.follow_up_date || item.call_back_date"
+              class="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md bg-surface-gray-1 p-2.5 text-xs border border-outline-gray-2"
+            >
+              <div v-if="item.next_action" class="flex items-center gap-1.5">
+                <span class="text-ink-gray-5">{{ __('Next Action:') }}</span>
+                <span class="font-medium text-ink-gray-8 rounded px-1.5 py-0.5 bg-surface-white border border-outline-gray-2">{{ item.next_action }}</span>
+              </div>
+              <div v-if="item.follow_up_date" class="flex items-center gap-1.5">
+                <span class="text-ink-gray-5">{{ __('Follow-up Date:') }}</span>
+                <span class="font-medium text-ink-gray-8">{{ item.follow_up_date }}</span>
+              </div>
+              <div v-if="item.call_back_date" class="flex items-center gap-1.5">
+                <span class="text-ink-gray-5">{{ __('Next Call On:') }}</span>
+                <span class="font-medium text-ink-gray-8">{{ item.call_back_date }}</span>
+              </div>
+            </div>
+
+            <!-- Description content -->
+            <div class="text-sm text-ink-gray-8 whitespace-pre-wrap leading-relaxed py-1">
+              {{ item.description }}
+            </div>
+
+            <!-- Footer: Created by -->
+            <div class="flex items-center justify-between border-t pt-2 text-xs text-ink-gray-5">
+              <div class="flex items-center gap-1.5">
+                <Avatar :label="item.author_name" size="sm" />
+                <span>{{ __('Created by') }} <span class="font-medium text-ink-gray-8">{{ item.author_name }}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <EmptyState
+          v-else
+          name="StatusUpdates"
+          :title="__('No status updates yet')"
+          :description="__('Click Create to record a status update for this prospect.')"
+          :icon="CheckCircleIcon"
+          :onCreate="() => (showUpdateStatusModal = true)"
         />
       </div>
     </div>
@@ -1072,6 +1208,15 @@
       v-model="showCallLogDetailModal"
       v-model:callLog="activeCallLogResource"
     />
+
+    <!-- 8. Update Status Modal -->
+    <UpdateStatusModal
+      v-model="showUpdateStatusModal"
+      :contact="contact"
+      :contactId="contactId"
+      :taskId="taskId"
+      @updated="onStatusUpdated"
+    />
   </div>
 </template>
 
@@ -1089,6 +1234,8 @@ import DealsListView from '@/components/ListViews/DealsListView.vue'
 import AudioPlayer from '@/components/Activities/AudioPlayer.vue'
 import VisualEmailEditor from '@/components/VisualEmailEditor.vue'
 import CallLogDetailModal from '@/components/Modals/CallLogDetailModal.vue'
+import UpdateStatusModal from '@/components/Modals/UpdateStatusModal.vue'
+import CheckCircleIcon from '@/components/Icons/CheckCircleIcon.vue'
 import { globalStore } from '@/stores/global'
 import { Badge, Button, Dialog, Dropdown, Avatar, FileUploader, toast, createResource, call } from 'frappe-ui'
 import { Editor, EditorContent, EditorFixedMenu } from 'frappe-ui/editor'
@@ -1103,6 +1250,7 @@ const props = defineProps({
   dealColumns: { type: Array, default: () => [] },
   allowEmail: { type: Boolean, default: false },
   taskId: { type: [String, Number], default: null },
+  showUpdateStatus: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['newDeal', 'taskStatusUpdated'])
@@ -1118,7 +1266,34 @@ const showMeetingModal = ref(false)
 const showEmailModal = ref(false)
 const showTemplateModal = ref(false)
 const showCallLogDetailModal = ref(false)
+const showUpdateStatusModal = ref(false)
 const activeCallLogResource = ref({})
+
+function onStatusUpdated(res) {
+  activitiesResource.reload()
+  if (res?.task_status) {
+    emit('taskStatusUpdated', res.task_status)
+  }
+}
+
+function getEmailContent(emailName) {
+  if (!emailName) return ''
+  const em = (activitiesData.value?.emails || []).find((e) => e.name === emailName)
+  return em?.content || ''
+}
+
+function getMainStatusBadgeClass(st) {
+  switch (st) {
+    case 'Contacted':
+      return 'bg-surface-green-2 text-ink-green-4 border border-outline-green-2'
+    case 'Not Contacted':
+      return 'bg-surface-amber-2 text-ink-amber-5 border border-outline-amber-2'
+    case 'Not Valid':
+      return 'bg-surface-red-2 text-ink-red-4 border border-outline-red-2'
+    default:
+      return 'bg-surface-gray-2 text-ink-gray-7 border border-outline-gray-2'
+  }
+}
 
 function openCallLogDetail(callName) {
   if (!callName) return
@@ -1320,48 +1495,70 @@ const emailsList = computed(() => activitiesData.value.emails || [])
 const callsList = computed(() => activitiesData.value.calls || [])
 const notesList = computed(() => activitiesData.value.notes || [])
 const meetingsList = computed(() => activitiesData.value.meetings || [])
+const statusUpdatesList = computed(() => activitiesData.value.status_updates || [])
 
-const tabList = computed(() => [
-  {
-    value: 'all_activity',
-    label: __('All Activity'),
-    icon: ActivityIcon,
-    count: activitiesData.value.counts?.all_activity || 0,
-  },
-  {
-    value: 'emails',
-    label: __('Emails'),
-    icon: EmailIcon,
-    count: activitiesData.value.counts?.emails || 0,
-  },
-  {
-    value: 'calls',
-    label: __('Calls'),
-    icon: PhoneIcon,
-    count: activitiesData.value.counts?.calls || 0,
-  },
-  {
-    value: 'notes',
-    label: __('Notes'),
-    icon: NoteIcon,
-    count: activitiesData.value.counts?.notes || 0,
-  },
-  {
-    value: 'meetings',
-    label: __('Meetings'),
-    icon: CalendarIcon,
-    count: activitiesData.value.counts?.meetings || 0,
-  },
-  {
-    value: 'deals',
-    label: __('Deals'),
-    icon: DealsIcon,
-    count: props.dealRows?.length || 0,
-  },
-])
+const tabList = computed(() => {
+  const tabs = [
+    {
+      value: 'all_activity',
+      label: __('All Activity'),
+      icon: ActivityIcon,
+      count: activitiesData.value.counts?.all_activity || 0,
+    },
+    {
+      value: 'emails',
+      label: __('Emails'),
+      icon: EmailIcon,
+      count: activitiesData.value.counts?.emails || 0,
+    },
+    {
+      value: 'calls',
+      label: __('Calls'),
+      icon: PhoneIcon,
+      count: activitiesData.value.counts?.calls || 0,
+    },
+    {
+      value: 'notes',
+      label: __('Notes'),
+      icon: NoteIcon,
+      count: activitiesData.value.counts?.notes || 0,
+    },
+    {
+      value: 'meetings',
+      label: __('Meetings'),
+      icon: CalendarIcon,
+      count: activitiesData.value.counts?.meetings || 0,
+    },
+  ]
+
+  if (props.showUpdateStatus) {
+    tabs.push({
+      value: 'update_status',
+      label: __('Update Status'),
+      icon: CheckCircleIcon,
+      count: activitiesData.value.counts?.status_updates || 0,
+    })
+  } else {
+    tabs.push({
+      value: 'deals',
+      label: __('Deals'),
+      icon: DealsIcon,
+      count: props.dealRows?.length || 0,
+    })
+  }
+
+  return tabs
+})
 
 const allActivityActionOptions = computed(() => {
   const options = []
+  if (props.showUpdateStatus) {
+    options.push({
+      label: __('Update Status'),
+      icon: CheckCircleIcon,
+      onClick: () => (showUpdateStatusModal.value = true),
+    })
+  }
   if (props.allowEmail) {
     options.push({
       label: __('Send Email'),
