@@ -83,6 +83,22 @@
             />
           </div>
 
+          <!-- Row 5: Social Profiles -->
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormControl
+              type="text"
+              :label="__('LinkedIn URL')"
+              v-model="form.linkedin"
+              :placeholder="__('https://linkedin.com/in/...')"
+            />
+            <FormControl
+              type="text"
+              :label="__('Upwork URL')"
+              v-model="form.upwork"
+              :placeholder="__('https://upwork.com/freelancers/...')"
+            />
+          </div>
+
           <!-- Row 5: Address -->
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <FormControl
@@ -168,6 +184,8 @@ const form = reactive({
   mobile_no: '',
   organization: '',
   website: '',
+  linkedin: '',
+  upwork: '',
   city: '',
   state: '',
   country: '',
@@ -183,6 +201,8 @@ function resetForm() {
   form.mobile_no = ''
   form.organization = ''
   form.website = ''
+  form.linkedin = ''
+  form.upwork = ''
   form.city = ''
   form.state = ''
   form.country = ''
@@ -191,8 +211,8 @@ function resetForm() {
 
 async function submit() {
   error.value = ''
-  if (!form.first_name && !form.organization && !form.email) {
-    error.value = __('Please provide at least a First Name, Organization Name, or Email.')
+  if (!form.first_name && !form.organization && !form.email && !form.linkedin && !form.upwork) {
+    error.value = __('Please provide at least a First Name, Organization Name, Email, or Social Link.')
     return
   }
 

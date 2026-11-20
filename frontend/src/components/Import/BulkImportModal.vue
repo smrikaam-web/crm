@@ -227,6 +227,8 @@
                   <th class="px-3 py-2">{{ __('Email') }}</th>
                   <th class="px-3 py-2">{{ __('Mobile') }}</th>
                   <th class="px-3 py-2">{{ __('Organization') }}</th>
+                  <th class="px-3 py-2">{{ __('LinkedIn') }}</th>
+                  <th class="px-3 py-2">{{ __('Upwork') }}</th>
                   <th class="px-3 py-2">{{ __('Status') }}</th>
                   <th class="px-3 py-2">{{ __('City') }}</th>
                 </tr>
@@ -243,6 +245,8 @@
                   <td class="px-3 py-1.5">{{ row.email || '—' }}</td>
                   <td class="px-3 py-1.5">{{ row.mobile_no || '—' }}</td>
                   <td class="px-3 py-1.5 font-medium text-ink-blue-4">{{ row.organization || '—' }}</td>
+                  <td class="px-3 py-1.5 max-w-[130px] truncate text-ink-gray-7" :title="row.linkedin">{{ row.linkedin || '—' }}</td>
+                  <td class="px-3 py-1.5 max-w-[130px] truncate text-ink-gray-7" :title="row.upwork">{{ row.upwork || '—' }}</td>
                   <td class="px-3 py-1.5">
                     <span class="inline-flex rounded-full bg-surface-gray-3 px-2 py-0.5 text-[10px] font-medium">
                       {{ row.status || 'New' }}
@@ -500,6 +504,8 @@ const crmDestinationFields = [
   { fieldname: 'mobile_no', label: __('Mobile Number'), description: __('Primary phone or mobile number'), required: false },
   { fieldname: 'organization', label: __('Organization Name'), description: __('Company / Organization to link or create'), required: false },
   { fieldname: 'website', label: __('Website'), description: __('Company website URL'), required: false },
+  { fieldname: 'linkedin', label: __('LinkedIn'), description: __('LinkedIn profile URL'), required: false },
+  { fieldname: 'upwork', label: __('Upwork'), description: __('Upwork profile URL'), required: false },
   { fieldname: 'city', label: __('City'), description: __('Address City'), required: false },
   { fieldname: 'state', label: __('State'), description: __('Address State / Province'), required: false },
   { fieldname: 'country', label: __('Country'), description: __('Address Country'), required: false },
@@ -515,6 +521,8 @@ const fieldMapping = reactive({
   mobile_no: '',
   organization: '',
   website: '',
+  linkedin: '',
+  upwork: '',
   city: '',
   state: '',
   country: '',

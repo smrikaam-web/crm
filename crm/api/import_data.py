@@ -50,6 +50,26 @@ SYNONYM_MAP = {
 		"organization_name",
 	],
 	"website": ["website", "company website", "org website", "url", "web", "site", "domain"],
+	"linkedin": [
+		"linkedin",
+		"linkedin url",
+		"linkedin profile",
+		"linkedin link",
+		"linkedin_url",
+		"linkedin_profile",
+		"linkedin profile url",
+		"custom_linkedin",
+	],
+	"upwork": [
+		"upwork",
+		"upwork url",
+		"upwork profile",
+		"upwork link",
+		"upwork_url",
+		"upwork_profile",
+		"upwork profile url",
+		"custom_upwork",
+	],
 	"city": ["city", "town", "locality"],
 	"state": ["state", "province", "region"],
 	"country": ["country", "nation"],
@@ -352,13 +372,15 @@ def preview_import(
 		mobile_no = _clean_str(r.get(mapping.get("mobile_no", "")))
 		org_val = _clean_str(r.get(mapping.get("organization", "")))
 		website = _clean_str(r.get(mapping.get("website", "")))
+		linkedin = _clean_str(r.get(mapping.get("linkedin", "")))
+		upwork = _clean_str(r.get(mapping.get("upwork", "")))
 		city = _clean_str(r.get(mapping.get("city", "")))
 		state = _clean_str(r.get(mapping.get("state", "")))
 		country = _clean_str(r.get(mapping.get("country", "")))
 		id_val = _clean_str(r.get(mapping.get("id", "")))
 
-		# Row validity: must have at least a person's name, email, mobile, or org
-		if not (first_name or email or mobile_no or org_val):
+		# Row validity: must have at least a person's name, email, mobile, org, linkedin, or upwork
+		if not (first_name or email or mobile_no or org_val or linkedin or upwork):
 			continue
 
 		valid_rows.append(r)
@@ -367,7 +389,7 @@ def preview_import(
 			unique_orgs.add(org_val)
 
 		# Check if optional fields are missing
-		optional_fields = [last_name, designation, website, city, state, country, id_val]
+		optional_fields = [last_name, designation, website, linkedin, upwork, city, state, country, id_val]
 		if any(not f for f in optional_fields):
 			missing_values_count += 1
 
@@ -403,6 +425,8 @@ def preview_import(
 			"mobile_no": _clean_str(r.get(mapping.get("mobile_no", ""))),
 			"organization": _clean_str(r.get(mapping.get("organization", ""))),
 			"website": _clean_str(r.get(mapping.get("website", ""))),
+			"linkedin": _clean_str(r.get(mapping.get("linkedin", ""))),
+			"upwork": _clean_str(r.get(mapping.get("upwork", ""))),
 			"city": _clean_str(r.get(mapping.get("city", ""))),
 			"state": _clean_str(r.get(mapping.get("state", ""))),
 			"country": _clean_str(r.get(mapping.get("country", ""))),
@@ -421,7 +445,12 @@ def preview_import(
 	}
 
 
-def _get_or_create_org(org_name: str | None, website: str | None = None, org_cache: dict[str, str] | None = None) -> str | None:
+def _get_or_create_org(
+	org_name: str | None,
+	website: str | None = None,
+	linkedin: str | None = None,
+	org_cache: dict[str, str] | None = None,
+) -> str | None:
 	"""Find existing Organization (case-insensitive) or create new one. Caches in-memory."""
 	if not org_name:
 		return None
@@ -438,11 +467,15 @@ def _get_or_create_org(org_name: str | None, website: str | None = None, org_cac
 			curr_site = frappe.db.get_value("CRM Organization", matched, "website")
 			if not curr_site:
 				frappe.db.set_value("CRM Organization", matched, "website", website)
+		if linkedin:
+			curr_li = frappe.db.get_value("CRM Organization", matched, "linkedin")
+			if not curr_li:
+				frappe.db.set_value("CRM Organization", matched, "linkedin", linkedin)
 		return matched
 
 	# Database lookup (case-insensitive)
 	existing = frappe.db.sql(
-		"SELECT name, website FROM `tabCRM Organization` WHERE LOWER(organization_name) = %s OR LOWER(name) = %s LIMIT 1",
+		"SELECT name, website, linkedin FROM `tabCRM Organization` WHERE LOWER(organization_name) = %s OR LOWER(name) = %s LIMIT 1",
 		(key, key),
 		as_dict=True,
 	)
@@ -451,6 +484,8 @@ def _get_or_create_org(org_name: str | None, website: str | None = None, org_cac
 		matched_name = existing[0].name
 		if website and not existing[0].website:
 			frappe.db.set_value("CRM Organization", matched_name, "website", website)
+		if linkedin and not existing[0].linkedin:
+			frappe.db.set_value("CRM Organization", matched_name, "linkedin", linkedin)
 		if org_cache is not None:
 			org_cache[key] = matched_name
 			org_cache[matched_name.lower()] = matched_name
@@ -463,6 +498,8 @@ def _get_or_create_org(org_name: str | None, website: str | None = None, org_cac
 	new_org.status = "Active"
 	if website:
 		new_org.website = website
+	if linkedin:
+		new_org.linkedin = linkedin
 	new_org.flags.ignore_permissions = True
 	new_org.insert()
 
@@ -483,6 +520,9 @@ def _get_or_create_contact(
 	status: str | None = None,
 	contact_cache: dict[str, str] | None = None,
 	country: str | None = None,
+	linkedin: str | None = None,
+	upwork: str | None = None,
+	website: str | None = None,
 ) -> str:
 	"""Find existing Contact by email/mobile or create new Contact linked to Organization."""
 	contact_name = None
@@ -545,6 +585,18 @@ def _get_or_create_contact(
 					contact_doc.custom_timezone = format_timezone_label(tz, country)
 					changed = True
 
+		if linkedin:
+			contact_doc.custom_linkedin = linkedin
+			changed = True
+
+		if upwork:
+			contact_doc.custom_upwork = upwork
+			changed = True
+
+		if website and not getattr(contact_doc, "custom_website", None):
+			contact_doc.custom_website = website
+			changed = True
+
 		if org_name:
 			has_link = any(
 				l.link_doctype == "CRM Organization" and l.link_name == org_name
@@ -599,6 +651,12 @@ def _get_or_create_contact(
 		tz = get_timezone_for_country(country)
 		if tz != "Not Available":
 			contact_doc.custom_timezone = format_timezone_label(tz, country)
+	if linkedin:
+		contact_doc.custom_linkedin = linkedin
+	if upwork:
+		contact_doc.custom_upwork = upwork
+	if website:
+		contact_doc.custom_website = website
 	if org_name:
 		contact_doc.company_name = org_name
 		contact_doc.append("links", {"link_doctype": "CRM Organization", "link_name": org_name})
@@ -737,6 +795,8 @@ def execute_bulk_import(
 		mobile_no = _clean_str(r.get(mapping.get("mobile_no", "")))
 		org_val = _clean_str(r.get(mapping.get("organization", "")))
 		website = _clean_str(r.get(mapping.get("website", "")))
+		linkedin = _clean_str(r.get(mapping.get("linkedin", "")))
+		upwork = _clean_str(r.get(mapping.get("upwork", "")))
 		city = _clean_str(r.get(mapping.get("city", "")))
 		state = _clean_str(r.get(mapping.get("state", "")))
 		country = _clean_str(r.get(mapping.get("country", "")))
@@ -744,7 +804,7 @@ def execute_bulk_import(
 		status_val = raw_status if raw_status in valid_statuses else None
 
 		# Blank row check: skip row if completely empty
-		if not (first_name or last_name or email or mobile_no or org_val):
+		if not (first_name or last_name or email or mobile_no or org_val or linkedin or upwork):
 			skipped += 1
 			continue
 
@@ -753,11 +813,11 @@ def execute_bulk_import(
 			frappe.db.savepoint(savepoint)
 
 			# 1. Organization: create or link existing without duplicate
-			org_name = _get_or_create_org(org_val, website=website, org_cache=org_cache)
+			org_name = _get_or_create_org(org_val, website=website, linkedin=linkedin, org_cache=org_cache)
 
 			# 2. Contact: individual/person record created as CRM Contact and linked to Organization
 			contact_name = None
-			if first_name or last_name or email or mobile_no or not org_name:
+			if first_name or last_name or email or mobile_no or linkedin or upwork or not org_name:
 				contact_name = _get_or_create_contact(
 					first_name=first_name,
 					last_name=last_name,
@@ -768,10 +828,13 @@ def execute_bulk_import(
 					status=status_val,
 					contact_cache=contact_cache,
 					country=country,
+					linkedin=linkedin,
+					upwork=upwork,
+					website=website,
 				)
 
 			# Ensure contact was created if person info was provided
-			if (first_name or last_name or email or mobile_no) and not contact_name:
+			if (first_name or last_name or email or mobile_no or linkedin or upwork) and not contact_name:
 				display_name = f"{first_name} {last_name}".strip() or org_val or email or f"Row {row_idx}"
 				raise ValueError(f"Failed to create Contact for {display_name}")
 
@@ -816,6 +879,8 @@ def execute_bulk_import(
 				"organization": org_name or org_val or "",
 				"email": email or "",
 				"contact": contact_name,
+				"linkedin": linkedin or "",
+				"upwork": upwork or "",
 			})
 
 			imported += 1
@@ -867,6 +932,8 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 	mobile_no = _clean_str(data.get("mobile_no"))
 	org_val = _clean_str(data.get("organization"))
 	website = _clean_str(data.get("website"))
+	linkedin = _clean_str(data.get("linkedin"))
+	upwork = _clean_str(data.get("upwork"))
 	city = _clean_str(data.get("city"))
 	state = _clean_str(data.get("state"))
 	country = _clean_str(data.get("country"))
@@ -895,12 +962,12 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 		if current_user and current_user != "Guest":
 			assignee_user = current_user
 
-	if not (first_name or org_val or email):
-		frappe.throw(_("At least a First Name, Organization Name, or Email is required."))
+	if not (first_name or org_val or email or linkedin or upwork):
+		frappe.throw(_("At least a First Name, Organization Name, Email, or Social Link is required."))
 
 	try:
 		# 1. Organization
-		org_name = _get_or_create_org(org_val, website=website)
+		org_name = _get_or_create_org(org_val, website=website, linkedin=linkedin)
 
 		# 2. Contact
 		contact_name = _get_or_create_contact(
@@ -911,6 +978,9 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 			org_name=org_name,
 			designation=designation,
 			country=country,
+			linkedin=linkedin,
+			upwork=upwork,
+			website=website,
 		)
 
 		# 3. Address (optional) - NO CRM Leads are created during import
@@ -958,6 +1028,8 @@ def execute_single_import(data: Any) -> dict[str, Any]:
 			"contact": contact_name,
 			"organization": org_name,
 			"assigned_to": assignee_user,
+			"linkedin": linkedin,
+			"upwork": upwork,
 		}
 	except Exception as e:
 		frappe.db.rollback()
