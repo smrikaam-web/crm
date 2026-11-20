@@ -351,70 +351,153 @@ def get_allocated_tasks(
 	user: str | None = None,
 	status: str | None = None,
 	search: str | None = None,
-) -> list[dict[str, Any]]:
-	"""Return task details.
+	limit: int | None = None,
+	offset: int | None = None,
+	page_length: int | None = None,
+	start: int | None = None,
+	as_dict: bool | int | None = None,
+	with_counts: bool | int | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
+	"""Return task details with server-side pagination and status count aggregation.
 	
 	Standard users are strictly restricted to their own tasks.
 	Admin users can inspect any user's tasks or all tasks for the given date.
 	"""
+	eff_limit = limit if limit is not None else page_length
+	eff_offset = offset if offset is not None else (start or 0)
+	return_dict = bool(as_dict or with_counts)
+
 	current_user = frappe.session.user
 	is_admin = is_admin_user(current_user)
 
-	filters = {}
+	where_clauses = ["1=1"]
+	params = {}
 
 	# Date filter: default to date provided (if provided)
-	if date:
-		filters["allocation_date"] = date
+	if date and date not in ("all", "*"):
+		where_clauses.append("da.allocation_date = %(allocation_date)s")
+		params["allocation_date"] = date
 
 	# User permission check & filtering
 	if not is_admin:
 		if user and user != current_user:
 			frappe.throw(_("Permission denied. You can only view your own tasks."), frappe.PermissionError)
-		filters["assigned_to"] = current_user
+		where_clauses.append("da.assigned_to = %(assigned_to)s")
+		params["assigned_to"] = current_user
 	else:
 		if user and user not in ("all", "*"):
-			filters["assigned_to"] = user
+			where_clauses.append("da.assigned_to = %(assigned_to)s")
+			params["assigned_to"] = user
 
+	# Base where clause before status and search (for tab status counts)
+	base_where_sql = " AND ".join(where_clauses)
+
+	# Aggregate counts for all tabs for this user/date
+	status_counts = {
+		"To Do": 0,
+		"In Progress": 0,
+		"Pending": 0,
+		"Callback": 0,
+		"Follow up": 0,
+		"Not Interested": 0,
+	}
+
+	st_rows = frappe.db.sql(f"""
+		SELECT da.status, COUNT(*) as cnt
+		FROM `tabCRM Daily Allocation` da
+		WHERE {base_where_sql}
+		GROUP BY da.status
+	""", params, as_dict=True)
+
+	for sr in st_rows:
+		raw_st = sr.status or "To Do"
+		if raw_st == "Follow-up Required":
+			mapped_st = "Follow up"
+		elif raw_st == "Completed" or raw_st not in VALID_STATUSES:
+			mapped_st = "To Do"
+		else:
+			mapped_st = raw_st
+		if mapped_st in status_counts:
+			status_counts[mapped_st] += sr.cnt or 0
+		else:
+			status_counts["To Do"] += sr.cnt or 0
+
+	# Status filter
 	if status and status not in ("all", "*"):
-		filters["status"] = status
+		if status == "To Do":
+			where_clauses.append(
+				"(da.status IN ('To Do', 'Completed') OR da.status IS NULL OR da.status = '' "
+				"OR da.status NOT IN ('In Progress', 'Pending', 'Callback', 'Follow up', 'Follow-up Required', 'Not Interested'))"
+			)
+		elif status == "Follow up":
+			where_clauses.append("da.status IN ('Follow up', 'Follow-up Required')")
+		elif status in VALID_STATUSES:
+			where_clauses.append("da.status = %(status_filter)s")
+			params["status_filter"] = status
 
-	query = frappe.get_all(
-		"CRM Daily Allocation",
-		filters=filters,
-		fields=[
-			"name",
-			"assigned_to",
-			"allocated_by",
-			"allocation_date",
-			"status",
-			"contact",
-			"contact_name",
-			"organization",
-			"email",
-			"mobile_no",
-			"country",
-			"timezone",
-			"notes",
-			"follow_up_date",
-			"creation",
-			"modified",
-		],
-		order_by="modified desc, creation desc",
-	)
+	# Search filter
+	search_clean = (search or "").strip()
+	if search_clean:
+		params["search_like"] = f"%{search_clean}%"
+		where_clauses.append("""(
+			da.contact_name LIKE %(search_like)s
+			OR da.organization LIKE %(search_like)s
+			OR da.email LIKE %(search_like)s
+			OR da.mobile_no LIKE %(search_like)s
+			OR da.country LIKE %(search_like)s
+			OR da.timezone LIKE %(search_like)s
+			OR da.notes LIKE %(search_like)s
+			OR c.designation LIKE %(search_like)s
+		)""")
 
-	# Batch fetch contact details (designation, company_name, creation)
-	contact_ids = list({row.contact for row in query if row.contact})
-	contact_meta = {}
-	if contact_ids:
-		contacts_data = frappe.get_all(
-			"Contact",
-			filters={"name": ["in", contact_ids]},
-			fields=["name", "designation", "company_name", "creation", "modified"],
-		)
-		for c in contacts_data:
-			contact_meta[c.name] = c
+	full_where_sql = " AND ".join(where_clauses)
 
-	# Batch cache user names for display in a single query
+	# Total count query for current filters
+	count_res = frappe.db.sql(f"""
+		SELECT COUNT(*) as total
+		FROM `tabCRM Daily Allocation` da
+		LEFT JOIN `tabContact` c ON c.name = da.contact
+		WHERE {full_where_sql}
+	""", params, as_dict=True)
+	total_count = count_res[0].total if count_res else 0
+
+	# Limit / Offset clause
+	limit_clause = ""
+	if eff_limit is not None and int(eff_limit) > 0:
+		limit_val = int(eff_limit)
+		offset_val = int(eff_offset or 0)
+		limit_clause = f"LIMIT {limit_val} OFFSET {offset_val}"
+
+	query = frappe.db.sql(f"""
+		SELECT
+			da.name,
+			da.assigned_to,
+			da.allocated_by,
+			da.allocation_date,
+			da.status,
+			da.contact,
+			da.contact_name,
+			da.organization,
+			da.email,
+			da.mobile_no,
+			da.country,
+			da.timezone,
+			da.notes,
+			da.follow_up_date,
+			da.creation,
+			da.modified,
+			c.designation,
+			c.company_name AS contact_company,
+			c.creation AS contact_creation,
+			c.modified AS contact_modified
+		FROM `tabCRM Daily Allocation` da
+		LEFT JOIN `tabContact` c ON c.name = da.contact
+		WHERE {full_where_sql}
+		ORDER BY da.modified DESC, da.creation DESC
+		{limit_clause}
+	""", params, as_dict=True)
+
+	# Batch cache user names
 	all_user_ids = {row.assigned_to for row in query if row.assigned_to} | {row.allocated_by for row in query if row.allocated_by}
 	user_names = {}
 	if all_user_ids:
@@ -428,59 +511,34 @@ def get_allocated_tasks(
 	batched_countries = {}
 	if contacts_needing_country or orgs_needing_country:
 		conditions = []
-		params = {}
+		addr_params = {}
 		if contacts_needing_country:
 			conditions.append("(dl.link_doctype = 'Contact' AND dl.link_name IN %(contacts)s)")
-			params["contacts"] = tuple(contacts_needing_country)
+			addr_params["contacts"] = tuple(contacts_needing_country)
 		if orgs_needing_country:
 			conditions.append("(dl.link_doctype = 'CRM Organization' AND dl.link_name IN %(orgs)s)")
-			params["orgs"] = tuple(orgs_needing_country)
+			addr_params["orgs"] = tuple(orgs_needing_country)
 		if conditions:
-			where_sql = " OR ".join(conditions)
+			where_addr_sql = " OR ".join(conditions)
 			addr_rows = frappe.db.sql(f"""
 				SELECT dl.link_doctype, dl.link_name, a.country
 				FROM `tabAddress` a
 				JOIN `tabDynamic Link` dl ON dl.parent = a.name
-				WHERE ({where_sql}) AND (a.country IS NOT NULL AND a.country != '')
+				WHERE ({where_addr_sql}) AND (a.country IS NOT NULL AND a.country != '')
 				ORDER BY a.creation DESC
-			""", params, as_dict=True)
+			""", addr_params, as_dict=True)
 			for ar in addr_rows:
 				k = (ar.link_doctype, ar.link_name)
 				if k not in batched_countries:
 					batched_countries[k] = ar.country
 
 	results = []
-	search_lower = (search or "").strip().lower()
-
 	for row in query:
-		c_info = contact_meta.get(row.contact) or {}
-		designation = c_info.get("designation") or ""
-
-		# Search filter on text fields
-		if search_lower:
-			fields_to_search = [
-				row.contact_name or "",
-				row.organization or "",
-				designation,
-				row.email or "",
-				row.mobile_no or "",
-				row.country or "",
-				row.timezone or "",
-				row.notes or "",
-				row.status or "",
-			]
-			if not any(search_lower in f.lower() for f in fields_to_search):
-				continue
-
+		designation = row.designation or ""
 		assigned_id = row.assigned_to
-		if assigned_id not in user_names:
-			user_names[assigned_id] = assigned_id
-
 		alloc_by_id = row.allocated_by
-		if alloc_by_id not in user_names:
-			user_names[alloc_by_id] = alloc_by_id
 
-		# Country and Timezone resolution (using batched country lookup)
+		# Country and Timezone resolution
 		c_val = row.get("country")
 		if not c_val:
 			c_val = batched_countries.get(("Contact", row.contact)) or batched_countries.get(("CRM Organization", row.organization))
@@ -495,9 +553,7 @@ def get_allocated_tasks(
 		st_val = row.status or "To Do"
 		if st_val == "Follow-up Required":
 			st_val = "Follow up"
-		elif st_val == "Completed":
-			st_val = "To Do"
-		elif st_val not in VALID_STATUSES:
+		elif st_val == "Completed" or st_val not in VALID_STATUSES:
 			st_val = "To Do"
 
 		results.append({
@@ -505,7 +561,7 @@ def get_allocated_tasks(
 			"contact": row.contact,
 			"contact_name": row.contact_name or row.contact,
 			"prospect_name": row.contact_name or row.contact,
-			"organization": row.organization or c_info.get("company_name") or "",
+			"organization": row.organization or row.contact_company or "",
 			"designation": designation,
 			"email": row.email or "",
 			"mobile_no": row.mobile_no or "",
@@ -514,17 +570,26 @@ def get_allocated_tasks(
 			"raw_timezone": tz_val or "",
 			"allocation_date": str(row.allocation_date),
 			"assigned_to": row.assigned_to,
-			"assigned_to_name": user_names[assigned_id],
+			"assigned_to_name": user_names.get(assigned_id, assigned_id or ""),
 			"allocated_by": row.allocated_by,
-			"allocated_by_name": user_names[alloc_by_id],
+			"allocated_by_name": user_names.get(alloc_by_id, alloc_by_id or ""),
 			"status": st_val,
 			"notes": row.notes or "",
 			"follow_up_date": str(row.follow_up_date) if row.follow_up_date else "",
-			"creation": str(c_info.get("creation") or row.creation),
+			"creation": str(row.contact_creation or row.creation),
 			"task_creation": str(row.creation),
 			"modified": str(row.modified),
-			"contact_modified": str(c_info.get("modified") or row.modified),
+			"contact_modified": str(row.contact_modified or row.modified),
 		})
+
+	if return_dict:
+		return {
+			"tasks": results,
+			"total_count": total_count,
+			"status_counts": status_counts,
+			"limit": eff_limit,
+			"offset": eff_offset,
+		}
 
 	return results
 

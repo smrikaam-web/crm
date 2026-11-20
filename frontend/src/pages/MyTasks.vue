@@ -116,7 +116,7 @@
               {{ __('Tasks List') }}
             </h2>
             <Badge variant="outline" size="sm">
-              {{ filteredTasks.length }} {{ __('tasks') }}
+              {{ totalTasksCount }} {{ __('tasks') }}
             </Badge>
 
             <!-- Selected items indicator & Three-Dot Bulk Actions -->
@@ -324,6 +324,40 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Pagination Footer matching Contacts page -->
+        <ListFooter
+          v-if="totalTasksCount > 0"
+          v-model="pageSize"
+          class="border-t border-outline-gray-2 px-3 py-2 sm:px-5 dark:border-outline-gray-7"
+          :options="{
+            rowCount: tasks.length,
+            totalCount: totalTasksCount,
+            pageLengthOptions: [20, 50, 100],
+          }"
+          @loadMore="handleLoadMore"
+        >
+          <template #right>
+            <div class="flex items-center">
+              <Button
+                v-if="tasks.length < totalTasksCount"
+                :label="__('Load More')"
+                :loading="loadingMore"
+                :disabled="loadingMore"
+                @click="handleLoadMore"
+              />
+              <div
+                v-if="tasks.length < totalTasksCount"
+                class="mx-3 h-4 border-l border-outline-gray-2 dark:border-outline-gray-7"
+              />
+              <div class="flex items-center gap-1 text-sm text-ink-gray-5">
+                <div>{{ tasks.length }}</div>
+                <div>{{ __('of') }}</div>
+                <div>{{ totalTasksCount }}</div>
+              </div>
+            </div>
+          </template>
+        </ListFooter>
       </div>
     </div>
 
@@ -726,9 +760,10 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, reactive, computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, reactive, computed, watch, watchEffect, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { call, Button, Dialog, Badge, Dropdown, Tooltip, toast } from 'frappe-ui'
+import { ListFooter } from 'frappe-ui/experimental'
 import { globalStore } from '@/stores/global'
 import { formatDate, timeAgo } from '@/utils'
 import { callEnabled } from '@/composables/telephony'
@@ -763,12 +798,17 @@ function handleRowClick(task) {
 
 const todayStr = new Date().toLocaleDateString('en-CA')
 const loading = ref(false)
+const loadingMore = ref(false)
 const isAdmin = ref(false)
 const selectedUser = ref('all')
 const dateFilterMode = ref('all')
 const customDate = ref(todayStr)
 const currentStatus = ref('To Do')
 const searchQuery = ref('')
+const pageSize = ref(20)
+const totalTasksCount = ref(0)
+const serverStatusCounts = ref({})
+let isAdminLoaded = false
 
 const tasks = ref([])
 const assignableUsers = ref([])
@@ -1287,20 +1327,36 @@ function handleDateModeChange() {
   fetchTasks()
 }
 
-async function fetchTasks() {
-  loading.value = true
+async function fetchTasks(options = {}) {
+  const append = options.append || false
+  if (append) {
+    if (loadingMore.value || loading.value) return
+    loadingMore.value = true
+  } else {
+    loading.value = true
+  }
+
   try {
     // Determine admin status
-    const summary = await call('crm.api.daily_allocation.get_daily_allocation_summary', {
-      date: todayStr,
-    })
-    isAdmin.value = summary.is_admin
+    if (!isAdminLoaded) {
+      const summary = await call('crm.api.daily_allocation.get_daily_allocation_summary', {
+        date: todayStr,
+      })
+      isAdmin.value = summary.is_admin
+      isAdminLoaded = true
 
-    if (isAdmin.value && !assignableUsers.value.length) {
-      assignableUsers.value = await call('crm.api.daily_allocation.get_assignable_users')
+      if (isAdmin.value && !assignableUsers.value.length) {
+        assignableUsers.value = await call('crm.api.daily_allocation.get_assignable_users')
+      }
     }
 
-    const params = {}
+    const params = {
+      as_dict: 1,
+      limit: pageSize.value,
+      offset: append ? tasks.value.length : 0,
+      status: currentStatus.value,
+    }
+
     if (dateFilterMode.value === 'today') {
       params.date = todayStr
     } else if (dateFilterMode.value === 'custom' && customDate.value) {
@@ -1311,7 +1367,18 @@ async function fetchTasks() {
       params.user = selectedUser.value
     }
 
-    const rawTasks = await call('crm.api.daily_allocation.get_allocated_tasks', params)
+    const q = searchQuery.value?.trim()
+    if (q) {
+      params.search = q
+    }
+
+    const res = await call('crm.api.daily_allocation.get_allocated_tasks', params)
+    const rawTasks = Array.isArray(res) ? res : (res?.tasks || [])
+    totalTasksCount.value = res?.total_count ?? rawTasks.length
+    if (res?.status_counts) {
+      serverStatusCounts.value = res.status_counts
+    }
+
     if (Array.isArray(rawTasks)) {
       for (let i = 0; i < rawTasks.length; i++) {
         const t = rawTasks[i]
@@ -1323,52 +1390,58 @@ async function fetchTasks() {
         t._timeAgo = t.modified ? formatTimeAgo(t.modified) : ''
       }
     }
-    tasks.value = rawTasks || []
+
+    if (append) {
+      const existingIds = new Set(tasks.value.map((t) => t.name))
+      for (let i = 0; i < rawTasks.length; i++) {
+        if (!existingIds.has(rawTasks[i].name)) {
+          tasks.value.push(rawTasks[i])
+          existingIds.add(rawTasks[i].name)
+        }
+      }
+    } else {
+      tasks.value = rawTasks || []
+      selectedTaskSet.value = new Set()
+    }
   } catch (error) {
     console.error('Error fetching tasks in MyTask:', error)
   } finally {
     loading.value = false
+    loadingMore.value = false
   }
 }
 
-const statusCounts = computed(() => {
-  const counts = {}
-  const list = tasks.value || []
-  for (let i = 0; i < list.length; i++) {
-    const st = list[i].status
-    counts[st] = (counts[st] || 0) + 1
-  }
-  return counts
-})
+function handleLoadMore() {
+  if (loadingMore.value || loading.value) return
+  if (tasks.value.length >= totalTasksCount.value) return
+  fetchTasks({ append: true })
+}
 
 function getCountForStatus(statusVal) {
-  return statusCounts.value[statusVal] || 0
+  return serverStatusCounts.value[statusVal] || 0
 }
 
 const filteredTasks = computed(() => {
-  const list = tasks.value || []
-  const st = currentStatus.value
-  const query = searchQuery.value.trim().toLowerCase()
+  return tasks.value || []
+})
 
-  const result = []
-  for (let i = 0; i < list.length; i++) {
-    const t = list[i]
-    if (t.status !== st) continue
-    if (query) {
-      const match =
-        (t.contact_name && t.contact_name.toLowerCase().includes(query)) ||
-        (t.organization && t.organization.toLowerCase().includes(query)) ||
-        (t.designation && t.designation.toLowerCase().includes(query)) ||
-        (t.email && t.email.toLowerCase().includes(query)) ||
-        (t.mobile_no && t.mobile_no.toLowerCase().includes(query)) ||
-        (t.country && t.country.toLowerCase().includes(query)) ||
-        (t.timezone && t.timezone.toLowerCase().includes(query)) ||
-        (t.notes && t.notes.toLowerCase().includes(query))
-      if (!match) continue
-    }
-    result.push(t)
-  }
-  return result
+// Reset pagination when page size changes (20, 50, 100)
+watch(pageSize, () => {
+  fetchTasks()
+})
+
+// Reset pagination when status tab changes
+watch(currentStatus, () => {
+  fetchTasks()
+})
+
+// Debounce search query
+let searchTimer = null
+watch(searchQuery, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    fetchTasks()
+  }, 300)
 })
 
 // Checkbox selection computed & indeterminate state
