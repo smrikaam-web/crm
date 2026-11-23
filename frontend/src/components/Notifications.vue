@@ -147,6 +147,10 @@ function getRoute(notification) {
     params = {
       contactId: notification.reference_name,
     }
+  } else if (notification.route_name === 'BookingDetail') {
+    params = {
+      bookingId: notification.reference_name,
+    }
   }
 
   return {

@@ -1,0 +1,208 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:booking_reference",
+ "creation": "2026-11-23 10:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "booking_reference",
+  "source",
+  "source_name",
+  "customer_name",
+  "company_name",
+  "email",
+  "phone",
+  "section_break_appt",
+  "interested_service",
+  "appointment_date",
+  "appointment_time",
+  "timezone",
+  "booking_status",
+  "assigned_to",
+  "section_break_meta",
+  "page_url",
+  "submitted_at",
+  "message",
+  "internal_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "booking_reference",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Booking Reference",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Website Booking Source",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "source.source_name",
+   "fieldname": "source_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Name"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Email",
+   "options": "Email",
+   "reqd": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "section_break_appt",
+   "fieldtype": "Section Break",
+   "label": "Appointment Details"
+  },
+  {
+   "fieldname": "interested_service",
+   "fieldtype": "Data",
+   "label": "Interested Service"
+  },
+  {
+   "fieldname": "appointment_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Appointment Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "appointment_time",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Appointment Time",
+   "reqd": 1
+  },
+  {
+   "default": "UTC",
+   "fieldname": "timezone",
+   "fieldtype": "Data",
+   "label": "Timezone"
+  },
+  {
+   "default": "New",
+   "fieldname": "booking_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "New\nUpcoming\nConfirmed\nCompleted\nCancelled\nRescheduled"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Assigned To",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_break_meta",
+   "fieldtype": "Section Break",
+   "label": "Submission & Notes"
+  },
+  {
+   "fieldname": "page_url",
+   "fieldtype": "Data",
+   "label": "Page URL"
+  },
+  {
+   "fieldname": "submitted_at",
+   "fieldtype": "Datetime",
+   "label": "Submitted At"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message"
+  },
+  {
+   "fieldname": "internal_notes",
+   "fieldtype": "Small Text",
+   "label": "Internal Notes"
+  }
+ ],
+ "modified": "2026-11-23 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FCRM",
+ "name": "Website Booking",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

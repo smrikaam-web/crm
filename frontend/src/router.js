@@ -131,6 +131,28 @@ const routes = [
     name: 'Daily Allocation',
     component: () => import('@/pages/DailyAllocation.vue'),
   },
+  {
+    path: '/booking-hub',
+    name: 'Booking Hub',
+    component: () => import('@/pages/BookingHub.vue'),
+  },
+  {
+    path: '/booking-hub/source/:sourceId',
+    name: 'BookingHubSource',
+    component: () => import('@/pages/BookingHubSource.vue'),
+    props: true,
+  },
+  {
+    path: '/booking-hub/manage-sources',
+    name: 'BookingHubManageSources',
+    component: () => import('@/pages/BookingHubManageSources.vue'),
+  },
+  {
+    path: '/booking-hub/booking/:bookingId',
+    name: 'BookingDetail',
+    component: () => import('@/pages/BookingDetail.vue'),
+    props: true,
+  },
   // one page across these routes, so an import stays open when its URL changes
   // after the first save
   {

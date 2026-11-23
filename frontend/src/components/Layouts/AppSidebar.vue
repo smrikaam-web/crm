@@ -140,26 +140,6 @@
             </transition>
           </div>
 
-          <!-- Standalone Item: Call Logs -->
-          <SidebarItem
-            :route="{ name: 'Call Logs' }"
-            :label="__('Call Logs')"
-            :active="activeItem === 'Call Logs'"
-            @click="selectItem($event, 'Call Logs')"
-          >
-            <template #prefix>
-              <Icon :icon="PhoneIcon" class="size-4 text-ink-gray-7" />
-            </template>
-            <Tooltip
-              :text="__('Call Logs')"
-              side="right"
-              :hoverDelay="1500"
-              :disabled="isCollapsed"
-            >
-              <span class="truncate text-sm">{{ __('Call Logs') }}</span>
-            </Tooltip>
-          </SidebarItem>
-
           <!-- Custom / Public / Pinned Views -->
           <CollapsibleSection
             v-for="section in customViews"
@@ -434,6 +414,18 @@ const groupedSections = computed(() => [
         key: 'Tasks',
         to: { name: 'Tasks' },
       },
+      {
+        label: 'Call Logs',
+        icon: PhoneIcon,
+        key: 'Call Logs',
+        to: { name: 'Call Logs' },
+      },
+      {
+        label: 'Booking Hub',
+        icon: CalendarIcon,
+        key: 'Booking Hub',
+        to: { name: 'Booking Hub' },
+      },
     ],
   },
   {
@@ -506,6 +498,8 @@ function getIcon(routeName, icon) {
       return NoteIcon
     case 'Call Logs':
       return PhoneIcon
+    case 'Booking Hub':
+      return CalendarIcon
     case 'Tasks':
     case 'My Task':
       return TaskIcon
@@ -554,7 +548,7 @@ function ensureActiveSectionOpened() {
     }
   }
 
-  const outreachKeys = ['Tasks']
+  const outreachKeys = ['Tasks', 'Call Logs', 'Booking Hub']
   if (outreachKeys.includes(name) || outreachKeys.includes(currentKey)) {
     sectionStates.value = {
       ...sectionStates.value,

@@ -1,0 +1,175 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:source_id",
+ "creation": "2026-11-23 10:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_id",
+  "source_name",
+  "domain",
+  "website_type",
+  "connection_status",
+  "is_active",
+  "section_break_creds",
+  "api_key",
+  "api_secret_hash",
+  "credential_reference",
+  "section_break_stats",
+  "last_successful_booking",
+  "total_bookings",
+  "new_bookings",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "domain",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Domain",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Corporate",
+   "fieldname": "website_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Website Type",
+   "options": "Corporate\nProduct\nOther\nCorporate Website\nProduct Website"
+  },
+  {
+   "default": "Pending Setup",
+   "fieldname": "connection_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Connection Status",
+   "options": "Pending Setup\nTesting\nConnected\nConnection Failed\nInactive"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "section_break_creds",
+   "fieldtype": "Section Break",
+   "label": "API Credentials"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Data",
+   "label": "API Key"
+  },
+  {
+   "fieldname": "api_secret_hash",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "API Secret Hash"
+  },
+  {
+   "fieldname": "credential_reference",
+   "fieldtype": "Data",
+   "label": "Credential Reference"
+  },
+  {
+   "fieldname": "section_break_stats",
+   "fieldtype": "Section Break",
+   "label": "Booking Statistics"
+  },
+  {
+   "fieldname": "last_successful_booking",
+   "fieldtype": "Datetime",
+   "label": "Last Successful Booking"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_bookings",
+   "fieldtype": "Int",
+   "label": "Total Bookings"
+  },
+  {
+   "default": "0",
+   "fieldname": "new_bookings",
+   "fieldtype": "Int",
+   "label": "New Bookings"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "modified": "2026-11-23 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FCRM",
+ "name": "Website Booking Source",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
