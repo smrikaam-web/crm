@@ -182,3 +182,127 @@ export function canInitiateCall({ isMakingCall, isCallActive, mobileNumber } = {
   }
   return { canCall: true }
 }
+
+/**
+ * Country prefix mapping for formatting international phone numbers.
+ */
+export const COUNTRY_PREFIX_MAP = {
+  '+1': { iso: 'US', country: 'United States' },
+  '+44': { iso: 'GB', country: 'United Kingdom' },
+  '+91': { iso: 'IN', country: 'India' },
+  '+61': { iso: 'AU', country: 'Australia' },
+  '+49': { iso: 'DE', country: 'Germany' },
+  '+33': { iso: 'FR', country: 'France' },
+  '+971': { iso: 'AE', country: 'UAE' },
+  '+65': { iso: 'SG', country: 'Singapore' },
+  '+43': { iso: 'AT', country: 'Austria' },
+  '+41': { iso: 'CH', country: 'Switzerland' },
+}
+
+/**
+ * Formats a caller ID number and optional friendly name into a clean display label.
+ * @param {string} number
+ * @param {string} [friendlyName]
+ * @returns {string}
+ */
+export function formatCallerIdLabel(number, friendlyName) {
+  if (!number) return ''
+  const trimmedNum = String(number).trim()
+
+  for (const [code, info] of Object.entries(COUNTRY_PREFIX_MAP)) {
+    if (trimmedNum.startsWith(code)) {
+      if (friendlyName && friendlyName !== trimmedNum && !friendlyName.startsWith('+')) {
+        return `${info.iso} ${info.country} (${friendlyName}) • ${trimmedNum}`
+      }
+      return `${info.iso} ${info.country} • ${trimmedNum}`
+    }
+  }
+
+  if (friendlyName && friendlyName !== trimmedNum) {
+    return `${friendlyName} • ${trimmedNum}`
+  }
+  return trimmedNum
+}
+
+/**
+ * Validates the response returned by `crm.integrations.twilio.api.get_caller_ids`.
+ * @param {Object} data
+ * @returns {{ ok: boolean, callerIds: Array<{ label: string, number: string, friendly_name?: string }>, error?: string, message?: string }}
+ */
+export function validateCallerIdsResponse(data) {
+  if (!data || typeof data !== 'object') {
+    return {
+      ok: false,
+      callerIds: [],
+      error: 'empty_response',
+      message: 'Invalid response from telephony service.',
+    }
+  }
+
+  // Support both direct object return and frappe.call wrapped response (data.message)
+  const payload = data.message && typeof data.message === 'object' ? data.message : data
+
+  if (payload.ok === false) {
+    return {
+      ok: false,
+      callerIds: [],
+      error: payload.error || 'fetch_failed',
+      message: payload.message || payload.detail || 'Failed to retrieve caller ID numbers.',
+    }
+  }
+
+  const rawNumbers = Array.isArray(payload.numbers) ? payload.numbers : []
+  const callerIds = []
+  const seenNumbers = new Set()
+
+  for (const item of rawNumbers) {
+    const rawNumber = typeof item === 'string' ? item : item?.number
+    if (!rawNumber) continue
+    const cleanedNumber = String(rawNumber).trim()
+    if (!cleanedNumber || seenNumbers.has(cleanedNumber)) continue
+    seenNumbers.add(cleanedNumber)
+
+    const friendlyName = typeof item === 'object' ? item.friendly_name : undefined
+    const label =
+      typeof item === 'object' && item.label
+        ? item.label
+        : formatCallerIdLabel(cleanedNumber, friendlyName)
+
+    callerIds.push({
+      number: cleanedNumber,
+      label,
+      friendly_name: friendlyName || cleanedNumber,
+    })
+  }
+
+  return {
+    ok: true,
+    callerIds,
+  }
+}
+
+/**
+ * Selects the default caller ID from an array of validated caller ID objects.
+ * Prioritizes matching a preferred number (e.g. agent-assigned number), otherwise defaults to the first number.
+ * @param {Array<{ number: string, label: string }>} callerIds
+ * @param {string|null} [preferredNumber]
+ * @returns {{ number: string, label: string }|null}
+ */
+export function selectDefaultCallerId(callerIds, preferredNumber = null) {
+  if (!Array.isArray(callerIds) || callerIds.length === 0) {
+    return null
+  }
+
+  if (preferredNumber) {
+    const cleanedTarget = String(preferredNumber).trim().replace(/\s+/g, '')
+    const match = callerIds.find(
+      (cid) => cid.number.replace(/\s+/g, '') === cleanedTarget,
+    )
+    if (match) {
+      return match
+    }
+  }
+
+  return callerIds[0] || null
+}
+

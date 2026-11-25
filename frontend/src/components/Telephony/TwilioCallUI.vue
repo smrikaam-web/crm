@@ -162,9 +162,10 @@
           />
           <Button
             class="cursor-pointer rounded-full"
-            :tooltip="__('Add a Note')"
+            :class="{ 'bg-surface-gray-7 text-white ring-1 ring-white/20': showNotesPanel }"
+            :tooltip="__('Call Notes')"
             :icon="NoteIcon"
-            @click="openNoteModal"
+            @click="toggleNotesPanel"
           />
           <Button
             class="rounded-full bg-surface-red-7 hover:bg-surface-red-8 rotate-[135deg] text-ink-base"
@@ -172,6 +173,56 @@
             :icon="PhoneIcon"
             @click="hangUpCall"
           />
+        </div>
+
+        <!-- Dedicated In-Call Notes Area -->
+        <div
+          v-if="onCall && showNotesPanel"
+          class="flex w-full flex-col gap-2 rounded-lg bg-surface-gray-9/90 p-2.5 text-left border border-surface-gray-7/60 shadow-inner"
+        >
+          <div class="flex items-center justify-between text-[11px] font-semibold text-ink-gray-3 uppercase tracking-wider">
+            <div class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{{ __('Call Notes') }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span v-if="isSavingNote" class="text-[10px] lowercase text-amber-400 font-normal">
+                {{ __('saving...') }}
+              </span>
+              <span v-else-if="noteSavedNotice" class="text-[10px] lowercase text-emerald-400 font-normal">
+                {{ __('saved') }}
+              </span>
+              <button
+                type="button"
+                class="text-ink-gray-4 hover:text-ink-gray-2 text-xs cursor-pointer p-0.5"
+                @click="showNotesPanel = false"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <textarea
+            v-model="activeCallState.notes"
+            rows="3"
+            class="w-full resize-none rounded bg-surface-gray-8/80 p-2 text-xs text-ink-gray-2 placeholder:text-ink-gray-5 border border-surface-gray-7/50 focus:border-outline-gray-4 focus:outline-none scroll-smooth leading-relaxed"
+            :placeholder="__('Type notes during call... (auto-saved)')"
+            @input="handleNotesInput"
+          />
+
+          <div class="flex items-center justify-between pt-0.5">
+            <span class="text-[10px] text-ink-gray-5">
+              {{ __('Linked to prospect & call log') }}
+            </span>
+            <Button
+              size="xs"
+              variant="subtle"
+              :label="isSavingNote ? __('Saving...') : __('Save Note')"
+              :loading="isSavingNote"
+              class="text-[11px] h-6 px-2.5 rounded font-medium text-ink-base bg-surface-gray-7 hover:bg-surface-gray-6"
+              @click="persistCallNote(true)"
+            />
+          </div>
         </div>
         <div
           v-if="onCall && showKeypad"
@@ -310,7 +361,6 @@ import MinimizeIcon from '@/components/Icons/MinimizeIcon.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
 import CountUpTimer from '@/components/CountUpTimer.vue'
-import { useDoctypeModal } from '@/composables/doctypeModal'
 import { Device } from '@twilio/voice-sdk'
 import { useDraggable, useWindowSize } from '@vueuse/core'
 import { useTelemetry } from '@framework/ui/telemetry'
@@ -399,36 +449,60 @@ const getContact = createResource({
   },
 })
 
-const { showModal } = useDoctypeModal()
-const note = ref({
-  name: '',
-  title: '',
-  content: '',
-})
+const showNotesPanel = ref(false)
+const isSavingNote = ref(false)
+const noteSavedNotice = ref(false)
+let notesDebounceTimer = null
 
-function openNoteModal() {
-  showModal({
-    name: note.value.name || null,
-    doctype: 'CRM Call Log',
-    title: 'Call Log',
-    callbacks: {
-      afterInsert: (n) => updateNote(n, true),
-      afterUpdate: updateNote,
-    },
-  })
+function toggleNotesPanel() {
+  showNotesPanel.value = !showNotesPanel.value
 }
 
-async function updateNote(_note, isInsert = false) {
-  note.value = _note
-  const sid = activeCallSid.value || _call?.parameters?.CallSid
-  if (isInsert && _note.name && sid) {
-    await call('crm.integrations.api.add_note_to_call_log', {
+function handleNotesInput() {
+  if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
+  notesDebounceTimer = setTimeout(() => {
+    persistCallNote(false)
+  }, 1200)
+}
+
+async function persistCallNote(isExplicit = false) {
+  const content = (activeCallState.notes || '').trim()
+  const sid = activeCallSid.value || _call?.parameters?.CallSid || activeCallState.activeCallSid
+  if (!content && !activeCallState.noteDocName) {
+    return
+  }
+  if (!sid) {
+    return
+  }
+
+  isSavingNote.value = true
+  try {
+    const res = await call('crm.integrations.api.add_note_to_call_log', {
       call_sid: sid,
-      note: _note,
+      note: {
+        name: activeCallState.noteDocName || undefined,
+        title: __('Call Note') + (contact.value?.full_name ? ` - ${contact.value.full_name}` : ''),
+        content: activeCallState.notes,
+      },
     })
-    capture('note_created')
-  } else {
+    if (res?.name) {
+      activeCallState.noteDocName = res.name
+    }
+    noteSavedNotice.value = true
+    setTimeout(() => {
+      noteSavedNotice.value = false
+    }, 2500)
+    if (isExplicit) {
+      toast.success(__('Call note saved'))
+    }
     capture('note_updated')
+  } catch (err) {
+    console.error('Failed to save in-call note:', err)
+    if (isExplicit) {
+      toast.error(__('Failed to save note'))
+    }
+  } finally {
+    isSavingNote.value = false
   }
 }
 
@@ -745,6 +819,8 @@ function rejectIncomingCall() {
 }
 
 async function hangUpCall() {
+  if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
+  await persistCallNote(false)
   await saveFinalTranscript()
   log.value = 'Hanging up call'
   if (_call) {
@@ -759,6 +835,8 @@ async function hangUpCall() {
 
 async function handleDisconnectedIncomingCall() {
   log.value = `Call ended from handle disconnected Incoming call.`
+  if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
+  await persistCallNote(false)
   await saveFinalTranscript()
   closeCallPopup()
 }
@@ -852,8 +930,14 @@ async function makeOutgoingCall(number) {
     log.value = `Attempting to call ${number} ...`
     callStatus.value = 'initiating'
 
+    const callParams = { To: number }
+    if (activeCallState.callerId) {
+      callParams.callerId = activeCallState.callerId
+      callParams.From = activeCallState.callerId
+    }
+
     _call = await device.connect({
-      params: { To: number },
+      params: callParams,
     })
 
     if (_call?.parameters?.CallSid) {
@@ -986,6 +1070,8 @@ function attachOutgoingCallListeners(callInstance) {
 
 async function handleCallDisconnected() {
   log.value = 'Call ended (disconnected).'
+  if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
+  await persistCallNote(false)
   await saveFinalTranscript()
   callStatus.value = 'disconnected'
   calling.value = false
@@ -1063,6 +1149,13 @@ function closeCallPopup() {
   showCallPopup.value = false
   showSmallCallWindow.value = false
   showKeypad.value = false
+  showNotesPanel.value = false
+  isSavingNote.value = false
+  noteSavedNotice.value = false
+  if (notesDebounceTimer) {
+    clearTimeout(notesDebounceTimer)
+    notesDebounceTimer = null
+  }
   callStatus.value = ''
   callErrorMessage.value = ''
   calling.value = false
@@ -1072,11 +1165,6 @@ function closeCallPopup() {
   activeCallState.onCall = false
   activeCallState.calling = false
   activeCallState.duration = '00:00:00'
-  note.value = {
-    name: '',
-    title: '',
-    content: '',
-  }
   _call = null
   resetTranscriptState()
 }
@@ -1176,7 +1264,10 @@ onMounted(() => {
     cancelCall: () => cancelCall(),
     toggleMute: () => toggleMute(),
     sendDigit: (d) => sendDigit(d),
-    saveNote: (content) => updateNote({ ...note.value, content }),
+    saveNote: (content) => {
+      activeCallState.notes = content
+      handleNotesInput()
+    },
   })
 })
 

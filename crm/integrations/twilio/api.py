@@ -126,6 +126,109 @@ def generate_access_token():
 		}
 
 
+COUNTRY_PREFIX_MAP = {
+	"+1": ("US", "United States"),
+	"+44": ("GB", "United Kingdom"),
+	"+91": ("IN", "India"),
+	"+61": ("AU", "Australia"),
+	"+49": ("DE", "Germany"),
+	"+33": ("FR", "France"),
+	"+971": ("AE", "UAE"),
+	"+65": ("SG", "Singapore"),
+	"+43": ("AT", "Austria"),
+	"+41": ("CH", "Switzerland"),
+}
+
+
+def format_caller_id_label(phone_number: str, friendly_name: str | None = None) -> str:
+	"""Formats an authorized caller ID phone number for display."""
+	if not phone_number:
+		return ""
+
+	phone = str(phone_number).strip()
+
+	prefix_info = None
+	for code, info in COUNTRY_PREFIX_MAP.items():
+		if phone.startswith(code):
+			prefix_info = info
+			break
+
+	if prefix_info:
+		iso, country = prefix_info
+		if friendly_name and friendly_name != phone and not friendly_name.startswith("+"):
+			return f"{iso} {country} ({friendly_name}) • {phone}"
+		return f"{iso} {country} • {phone}"
+
+	if friendly_name and friendly_name != phone:
+		return f"{friendly_name} • {phone}"
+
+	return phone
+
+
+@frappe.whitelist()
+def get_caller_ids():
+	"""Retrieve verified and authorized Twilio phone numbers for outbound voice calling.
+	Only numbers owned by the configured Twilio account with outbound voice capability are returned.
+	"""
+	if not frappe.session.user or frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"), frappe.PermissionError)
+
+	settings = frappe.get_doc("CRM Twilio Settings")
+	if not (settings and settings.enabled):
+		return {
+			"ok": False,
+			"error": "twilio_disabled",
+			"message": _("Twilio integration is not enabled."),
+			"numbers": [],
+		}
+
+	has_auth_token = bool(settings.get_password("auth_token", raise_exception=False))
+	if not settings.account_sid or not (has_auth_token or settings.api_key):
+		return {
+			"ok": False,
+			"error": "twilio_credentials_missing",
+			"message": _("Twilio credentials are missing or incomplete. Please contact your administrator."),
+			"numbers": [],
+		}
+
+	try:
+		twilio = Twilio.connect()
+		if not twilio:
+			return {
+				"ok": False,
+				"error": "twilio_not_connected",
+				"message": _("Twilio service is currently unavailable."),
+				"numbers": [],
+			}
+
+		voice_numbers = twilio.get_voice_phone_numbers()
+		caller_ids = []
+		for num in voice_numbers:
+			phone = getattr(num, "phone_number", None)
+			if not phone:
+				continue
+			friendly_name = getattr(num, "friendly_name", None) or phone
+			label = format_caller_id_label(phone, friendly_name)
+			caller_ids.append({
+				"number": phone,
+				"friendly_name": friendly_name,
+				"label": label,
+			})
+
+		return {
+			"ok": True,
+			"numbers": caller_ids,
+		}
+	except Exception as exc:
+		frappe.log_error(title="Failed to retrieve Twilio caller numbers", message=str(exc))
+		return {
+			"ok": False,
+			"error": "fetch_failed",
+			"message": _("Failed to retrieve Twilio caller numbers: {0}").format(str(exc)),
+			"numbers": [],
+		}
+
+
 # webhook authenticity is enforced by validate_twilio_request(); guest access itself is unchanged
 @frappe.whitelist(allow_guest=True)  # nosemgrep: guest-whitelisted-method
 def voice(**kwargs):
@@ -141,6 +244,19 @@ def voice(**kwargs):
 
 	# Generate TwiML instructions to make a call
 	from_number = _get_caller_number(args.Caller)
+
+	# If a specific callerId was sent by the client, verify that it is an authorized incoming number
+	requested_caller_id = args.get("callerId") or args.get("From")
+	if requested_caller_id and not requested_caller_id.startswith("client:"):
+		try:
+			authorized_numbers = twilio.get_phone_numbers()
+			cleaned_requested = requested_caller_id.replace(" ", "")
+			matching = next((n for n in authorized_numbers if n.replace(" ", "") == cleaned_requested), None)
+			if matching:
+				from_number = matching
+		except Exception as exc:
+			frappe.log_error(title="Failed to verify Twilio caller ID in voice webhook", message=str(exc))
+
 	if not from_number:
 		resp = VoiceResponse()
 		resp.say(_("Your account is not configured with a phone number. Please contact your administrator."))

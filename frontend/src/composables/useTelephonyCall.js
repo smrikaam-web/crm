@@ -17,9 +17,10 @@ export const activeCallState = reactive({
   showKeypad: false,
   activeCallSid: '',
   notes: '',
+  noteDocName: '',
   errorMessage: '',
-  callerId: '+44 7412 097737',
-  callerIdLabel: 'GB United Kingdom • +44 7412 097737',
+  callerId: '',
+  callerIdLabel: '',
 })
 
 // Call handlers registered by active telephony client (TwilioCallUI)
@@ -56,6 +57,8 @@ export function useTelephonyCall() {
     activeCallState.muted = false
     activeCallState.showKeypad = false
     activeCallState.errorMessage = ''
+    activeCallState.notes = ''
+    activeCallState.noteDocName = ''
 
     if (contactData) {
       activeCallState.contact = {
@@ -121,6 +124,7 @@ export function useTelephonyCall() {
     activeCallState.showKeypad = false
     activeCallState.activeCallSid = ''
     activeCallState.notes = ''
+    activeCallState.noteDocName = ''
     activeCallState.errorMessage = ''
   }
 

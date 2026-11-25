@@ -36,6 +36,23 @@ class Twilio:
 		numbers = self.twilio_client.incoming_phone_numbers.list()
 		return [n.phone_number for n in numbers]
 
+	def get_voice_phone_numbers(self):
+		"""Get account's Twilio phone numbers that support outbound voice calling."""
+		numbers = self.twilio_client.incoming_phone_numbers.list()
+		voice_numbers = []
+		for n in numbers:
+			caps = getattr(n, "capabilities", None)
+			is_voice = False
+			if isinstance(caps, dict):
+				is_voice = bool(caps.get("voice"))
+			elif hasattr(caps, "voice"):
+				is_voice = bool(caps.voice)
+			elif caps is None:
+				is_voice = True
+			if is_voice:
+				voice_numbers.append(n)
+		return voice_numbers
+
 	def generate_voice_access_token(self, identity: str, ttl=60 * 60):
 		"""Generates a token required to make voice calls from the browser."""
 		# identity is used by twilio to identify the user uniqueness at browser(or any endpoints).

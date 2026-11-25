@@ -6,6 +6,9 @@ import {
   canInitiateCall,
   sanitizePhoneNumber,
   DIALPAD_KEYS,
+  formatCallerIdLabel,
+  validateCallerIdsResponse,
+  selectDefaultCallerId,
 } from '@/utils/twilioCall'
 
 describe('validateTokenResponse', () => {
@@ -219,5 +222,119 @@ describe('DIALPAD_KEYS', () => {
     expect(DIALPAD_KEYS).toHaveLength(12)
     const digits = DIALPAD_KEYS.map((k) => k.digit)
     expect(digits).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'])
+  })
+})
+
+describe('formatCallerIdLabel', () => {
+  it('formats US numbers with country code and name', () => {
+    expect(formatCallerIdLabel('+12025550143')).toBe('US United States • +12025550143')
+  })
+
+  it('formats US numbers with custom friendly name', () => {
+    expect(formatCallerIdLabel('+12025550143', 'Sales Line')).toBe(
+      'US United States (Sales Line) • +12025550143',
+    )
+  })
+
+  it('formats UK and India numbers with appropriate country info', () => {
+    expect(formatCallerIdLabel('+447412097737')).toBe('GB United Kingdom • +447412097737')
+    expect(formatCallerIdLabel('+919876543210')).toBe('IN India • +919876543210')
+  })
+
+  it('handles numbers without known country prefix', () => {
+    expect(formatCallerIdLabel('+8881234567')).toBe('+8881234567')
+    expect(formatCallerIdLabel('+8881234567', 'Global Toll-Free')).toBe('Global Toll-Free • +8881234567')
+  })
+
+  it('returns empty string for null or empty number', () => {
+    expect(formatCallerIdLabel('')).toBe('')
+    expect(formatCallerIdLabel(null)).toBe('')
+  })
+})
+
+describe('validateCallerIdsResponse', () => {
+  it('returns error when response is null or invalid', () => {
+    expect(validateCallerIdsResponse(null)).toEqual({
+      ok: false,
+      callerIds: [],
+      error: 'empty_response',
+      message: 'Invalid response from telephony service.',
+    })
+  })
+
+  it('handles ok: false from backend with error message', () => {
+    const res = validateCallerIdsResponse({
+      ok: false,
+      error: 'twilio_disabled',
+      message: 'Twilio integration is not enabled.',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.callerIds).toEqual([])
+    expect(res.error).toBe('twilio_disabled')
+    expect(res.message).toBe('Twilio integration is not enabled.')
+  })
+
+  it('handles frappe.call response wrapped in message property', () => {
+    const res = validateCallerIdsResponse({
+      message: {
+        ok: true,
+        numbers: [
+          { number: '+12025550143', label: 'US United States • +12025550143' },
+        ],
+      },
+    })
+    expect(res.ok).toBe(true)
+    expect(res.callerIds).toHaveLength(1)
+    expect(res.callerIds[0].number).toBe('+12025550143')
+  })
+
+  it('filters out empty or duplicate numbers', () => {
+    const res = validateCallerIdsResponse({
+      ok: true,
+      numbers: [
+        '+12025550143',
+        '+12025550143', // duplicate
+        '', // empty
+        null, // null
+        { number: '+19388370825', friendly_name: 'Alabama Office' },
+      ],
+    })
+    expect(res.ok).toBe(true)
+    expect(res.callerIds).toHaveLength(2)
+    expect(res.callerIds[0].number).toBe('+12025550143')
+    expect(res.callerIds[1].number).toBe('+19388370825')
+    expect(res.callerIds[1].friendly_name).toBe('Alabama Office')
+  })
+})
+
+describe('selectDefaultCallerId', () => {
+  const sampleCallerIds = [
+    { number: '+12025550143', label: 'US Main • +12025550143' },
+    { number: '+19388370825', label: 'US Direct • +19388370825' },
+  ]
+
+  it('selects preferred number when present in callerIds', () => {
+    const selected = selectDefaultCallerId(sampleCallerIds, '+19388370825')
+    expect(selected).toEqual(sampleCallerIds[1])
+  })
+
+  it('selects preferred number ignoring whitespace differences', () => {
+    const selected = selectDefaultCallerId(sampleCallerIds, '+1 938 837 0825')
+    expect(selected).toEqual(sampleCallerIds[1])
+  })
+
+  it('defaults to first caller ID if preferred number is not in list', () => {
+    const selected = selectDefaultCallerId(sampleCallerIds, '+447412097737')
+    expect(selected).toEqual(sampleCallerIds[0])
+  })
+
+  it('defaults to first caller ID when no preferred number is specified', () => {
+    const selected = selectDefaultCallerId(sampleCallerIds)
+    expect(selected).toEqual(sampleCallerIds[0])
+  })
+
+  it('returns null when callerIds array is empty or invalid', () => {
+    expect(selectDefaultCallerId([])).toBeNull()
+    expect(selectDefaultCallerId(null)).toBeNull()
   })
 })

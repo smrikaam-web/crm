@@ -32,18 +32,48 @@
 
         <!-- Top Right: From / Caller ID Dropdown -->
         <div class="relative">
-          <Dropdown :options="callerIdDropdownOptions">
+          <!-- Dropdown when multiple authorized numbers exist -->
+          <Dropdown v-if="callerIds.length > 1" :options="callerIdDropdownOptions">
             <button
               type="button"
               class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-base px-3 py-1.5 text-xs font-medium text-ink-gray-8 shadow-xs hover:bg-surface-gray-2 dark:border-outline-gray-7 dark:text-ink-gray-2 dark:hover:bg-surface-gray-8"
             >
               <span class="text-ink-gray-5">{{ __('From:') }}</span>
               <span class="font-semibold text-ink-gray-9 dark:text-ink-white">
-                {{ selectedCallerId.label }}
+                {{ selectedCallerId?.label }}
               </span>
               <span class="lucide-chevron-down size-3.5 text-ink-gray-5" />
             </button>
           </Dropdown>
+
+          <!-- Single authorized number: display directly without dropdown -->
+          <div
+            v-else-if="callerIds.length === 1 && selectedCallerId"
+            class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-base px-3 py-1.5 text-xs font-medium text-ink-gray-8 shadow-xs dark:border-outline-gray-7 dark:text-ink-gray-2"
+          >
+            <span class="text-ink-gray-5">{{ __('From:') }}</span>
+            <span class="font-semibold text-ink-gray-9 dark:text-ink-white">
+              {{ selectedCallerId.label }}
+            </span>
+          </div>
+
+          <!-- Loading state -->
+          <div
+            v-else-if="loadingCallerIds"
+            class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-base px-3 py-1.5 text-xs font-medium text-ink-gray-5 dark:border-outline-gray-7"
+          >
+            <span>{{ __('Loading caller ID...') }}</span>
+          </div>
+
+          <!-- Configuration error / No authorized numbers available -->
+          <div
+            v-else
+            class="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-300"
+            :title="callerIdError || __('No authorized Twilio caller ID numbers configured.')"
+          >
+            <span class="lucide-alert-circle size-3.5 text-amber-600 dark:text-amber-400" />
+            <span>{{ __('No caller ID configured') }}</span>
+          </div>
         </div>
       </div>
     </header>
@@ -443,13 +473,31 @@ import LucideFileText from '~icons/lucide/file-text'
 import { Badge, Dropdown, call, toast } from 'frappe-ui'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useTelephonyCall } from '@/composables/useTelephonyCall'
+import {
+  validateCallerIdsResponse,
+  selectDefaultCallerId,
+} from '@/utils/twilioCall'
 
-const { state, isCallActive, initiateCall, endCall, toggleMute, sendDigit, updateNotes } = useTelephonyCall()
+const {
+  state,
+  isCallActive,
+  initiateCall,
+  endCall,
+  toggleMute,
+  sendDigit,
+  updateNotes,
+  setCallerId,
+} = useTelephonyCall()
 
 // State
 const inputNumber = ref('')
 const showInCallKeypad = ref(false)
-const callNotes = ref('')
+const callNotes = computed({
+  get: () => state.notes || '',
+  set: (val) => {
+    state.notes = val
+  },
+})
 const notesTextareaRef = ref(null)
 const loadingTasks = ref(false)
 const taskNumbers = ref([])
@@ -478,18 +526,17 @@ const countryCodeOptions = countryCodes.map((c) => ({
 }))
 
 // Caller IDs
-const callerIds = ref([
-  { label: 'GB United Kingdom • +44 7412 097737', number: '+44 7412 097737' },
-  { label: 'US United States • +1 202 555 0143', number: '+1 202 555 0143' },
-  { label: 'IN India • +91 98765 43210', number: '+91 98765 43210' },
-])
-const selectedCallerId = ref(callerIds.value[0])
+const callerIds = ref([])
+const selectedCallerId = ref(null)
+const loadingCallerIds = ref(false)
+const callerIdError = ref('')
 
 const callerIdDropdownOptions = computed(() =>
   callerIds.value.map((cid) => ({
     label: cid.label,
     onClick: () => {
       selectedCallerId.value = cid
+      setCallerId(cid.number, cid.label)
     },
   })),
 )
@@ -596,6 +643,10 @@ function handleCallButton(e) {
   e?.preventDefault?.()
   e?.stopPropagation?.()
   if (isCallActive.value) return
+  if (!selectedCallerId.value?.number) {
+    toast.error(__('No authorized Twilio caller ID configured. Please contact your administrator.'))
+    return
+  }
   let number = inputNumber.value ? inputNumber.value.trim() : ''
   if (!number) {
     toast.error(__('Please enter a phone number to call.'))
@@ -616,6 +667,10 @@ function handleCallButton(e) {
 function dialProspect(item, e) {
   e?.preventDefault?.()
   e?.stopPropagation?.()
+  if (!selectedCallerId.value?.number) {
+    toast.error(__('No authorized Twilio caller ID configured. Please contact your administrator.'))
+    return
+  }
   const phone = item.mobile_no || item.phone
   if (!phone) {
     toast.error(__('No phone number available for this prospect.'))
@@ -642,6 +697,58 @@ function handleNotesInput() {
   }, 400)
 }
 
+// Fetch authorized Twilio Caller IDs from backend
+async function fetchCallerIds() {
+  loadingCallerIds.value = true
+  callerIdError.value = ''
+  try {
+    const res = await call('crm.integrations.twilio.api.get_caller_ids')
+    const { ok, callerIds: validatedIds, error, message } = validateCallerIdsResponse(res)
+
+    if (ok && validatedIds.length > 0) {
+      callerIds.value = validatedIds
+
+      // Check if current user has an assigned Twilio number in CRM Telephony Agent
+      let preferredNumber = null
+      try {
+        const agentDoc = await call('frappe.client.get_value', {
+          doctype: 'CRM Telephony Agent',
+          filters: { user: window.frappe?.session?.user || '' },
+          fieldname: 'twilio_number',
+        })
+        if (agentDoc?.message?.twilio_number) {
+          preferredNumber = agentDoc.message.twilio_number
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // Preserve existing selected caller ID if still valid, or match preferred number, or default to first
+      const currentSelectedNum = selectedCallerId.value?.number
+      const targetNum = currentSelectedNum || preferredNumber
+      selectedCallerId.value = selectDefaultCallerId(validatedIds, targetNum)
+
+      if (selectedCallerId.value) {
+        setCallerId(selectedCallerId.value.number, selectedCallerId.value.label)
+      }
+    } else {
+      callerIds.value = []
+      selectedCallerId.value = null
+      callerIdError.value =
+        message || error || __('No authorized Twilio caller ID numbers configured.')
+      setCallerId('', '')
+    }
+  } catch (err) {
+    console.error('Failed to fetch Twilio caller IDs:', err)
+    callerIds.value = []
+    selectedCallerId.value = null
+    callerIdError.value = err?.message || __('Failed to fetch Twilio caller IDs.')
+    setCallerId('', '')
+  } finally {
+    loadingCallerIds.value = false
+  }
+}
+
 // Fetch assigned tasks with phone numbers
 async function fetchTasks() {
   loadingTasks.value = true
@@ -656,25 +763,6 @@ async function fetchTasks() {
     taskNumbers.value = rows.filter(
       (r) => (r.mobile_no && r.mobile_no.trim()) || (r.phone && r.phone.trim()),
     )
-
-    // Pre-populate Caller ID if user has one configured
-    try {
-      const userTwilio = await call('frappe.client.get_value', {
-        doctype: 'CRM Telephony Agent',
-        filters: { user: window.frappe?.session?.user || '' },
-        fieldname: 'twilio_number',
-      })
-      if (userTwilio?.message?.twilio_number) {
-        const num = userTwilio.message.twilio_number
-        callerIds.value.unshift({
-          label: `Agent Twilio • ${num}`,
-          number: num,
-        })
-        selectedCallerId.value = callerIds.value[0]
-      }
-    } catch (e) {
-      // ignore
-    }
   } catch (err) {
     console.error('Failed to fetch assigned task numbers:', err)
   } finally {
@@ -683,6 +771,7 @@ async function fetchTasks() {
 }
 
 onMounted(() => {
+  fetchCallerIds()
   fetchTasks()
 })
 
