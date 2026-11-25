@@ -26,6 +26,13 @@ def is_admin_only(user: str | None = None) -> bool:
 	return "System Manager" in user_roles
 
 
+def enforce_email_account_settings(doc, method=None):
+	"""Ensure Email Accounts never have create_contact enabled in Smrikaam CRM.
+	Contacts must only be created through intentional CRM actions (Imports, Lead conversion, Manual).
+	"""
+	doc.create_contact = 0
+
+
 # ------------------------------------------------------------------------------
 # 1. DELETE GUARDS
 # ------------------------------------------------------------------------------

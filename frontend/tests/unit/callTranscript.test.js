@@ -3,6 +3,9 @@ import {
   formatTranscriptUtterances,
   normalizeTranscriptSpeaker,
   appendOrUpdateUtterance,
+  formatSpeechTimestamp,
+  hasSpeechRecognitionSupport,
+  getSpeakerDisplayName,
 } from '@/utils/callTranscript'
 
 describe('callTranscript utility', () => {
@@ -163,6 +166,53 @@ describe('callTranscript utility', () => {
       expect(result).toHaveLength(2)
       expect(result[1].speaker).toBe('agent')
       expect(result[1].text).toBe('Hi there')
+    })
+  })
+
+  describe('formatSpeechTimestamp', () => {
+    it('returns 00:00 for null, undefined or 0', () => {
+      expect(formatSpeechTimestamp(null)).toBe('00:00')
+      expect(formatSpeechTimestamp(undefined)).toBe('00:00')
+      expect(formatSpeechTimestamp(0)).toBe('00:00')
+    })
+
+    it('formats numeric seconds into mm:ss', () => {
+      expect(formatSpeechTimestamp(8)).toBe('00:08')
+      expect(formatSpeechTimestamp(12)).toBe('00:12')
+      expect(formatSpeechTimestamp(75)).toBe('01:15')
+      expect(formatSpeechTimestamp(360)).toBe('06:00')
+    })
+
+    it('handles string formatted time inputs', () => {
+      expect(formatSpeechTimestamp('00:01:15')).toBe('01:15')
+      expect(formatSpeechTimestamp('01:15')).toBe('01:15')
+      expect(formatSpeechTimestamp('35')).toBe('00:35')
+    })
+  })
+
+  describe('hasSpeechRecognitionSupport', () => {
+    it('returns a boolean indicating browser API availability', () => {
+      const supported = hasSpeechRecognitionSupport()
+      expect(typeof supported).toBe('boolean')
+    })
+  })
+
+  describe('getSpeakerDisplayName', () => {
+    it('returns agent name with (You) suffix for agent speaker', () => {
+      expect(getSpeakerDisplayName('agent', 'Mohamad Farhad', 'Sam Walker')).toBe(
+        'Sam Walker (You)',
+      )
+      expect(getSpeakerDisplayName('user', 'Mohamad Farhad', 'Sam Walker')).toBe(
+        'Sam Walker (You)',
+      )
+      expect(getSpeakerDisplayName('agent', 'Mohamad Farhad')).toBe('Agent (You)')
+    })
+
+    it('returns contact full name for customer speaker', () => {
+      expect(getSpeakerDisplayName('customer', 'Mohamad Farhad', 'Sam Walker')).toBe(
+        'Mohamad Farhad',
+      )
+      expect(getSpeakerDisplayName('customer', '')).toBe('Customer')
     })
   })
 })

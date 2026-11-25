@@ -80,23 +80,71 @@ def set_default_calling_medium(medium: str):
 @frappe.whitelist()
 def add_note_to_call_log(call_sid: str, note: dict):
 	"""Add/Update note to call log based on call sid."""
-	if not frappe.has_permission("CRM Call Log", "write", call_sid):
+	if isinstance(note, str):
+		import json
+		try:
+			note = json.loads(note)
+		except Exception:
+			note = {"content": note}
+
+	# Find call log by name or id
+	call_log = None
+	if frappe.db.exists("CRM Call Log", call_sid):
+		call_log = frappe.get_doc("CRM Call Log", call_sid)
+	else:
+		name_by_id = frappe.db.get_value("CRM Call Log", {"id": call_sid}, "name")
+		if name_by_id:
+			call_log = frappe.get_doc("CRM Call Log", name_by_id)
+		else:
+			try:
+				from crm.integrations.twilio.api import find_call_log
+				call_log = find_call_log(call_sid)
+			except Exception:
+				pass
+
+	if not call_log:
+		frappe.throw(_("Call log not found for SID {0}").format(call_sid), frappe.DoesNotExistError)
+
+	if not frappe.has_permission("CRM Call Log", "write", call_log):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	_note = None
 	if not note.get("name"):
-		_note = frappe.get_doc(
-			{
-				"doctype": "FCRM Note",
-				"title": note.get("title", "Call Note"),
-				"content": note.get("content"),
-			}
-		).insert(ignore_permissions=True)
+		note_data = {
+			"doctype": "FCRM Note",
+			"title": note.get("title", "Call Note"),
+			"content": note.get("content"),
+		}
+		if call_log.reference_doctype and call_log.reference_docname:
+			note_data["reference_doctype"] = call_log.reference_doctype
+			note_data["reference_docname"] = call_log.reference_docname
+		elif getattr(call_log, "links", None):
+			for link in call_log.links:
+				if link.link_doctype in ("Contact", "CRM Lead", "CRM Deal"):
+					note_data["reference_doctype"] = link.link_doctype
+					note_data["reference_docname"] = link.link_name
+					break
+		_note = frappe.get_doc(note_data).insert(ignore_permissions=True)
 	else:
-		_note = frappe.set_value("FCRM Note", note.get("name"), "content", note.get("content"))
+		_note = frappe.get_doc("FCRM Note", note.get("name"))
+		_note.content = note.get("content")
+		if note.get("title"):
+			_note.title = note.get("title")
+		if not getattr(_note, "reference_doctype", None):
+			if call_log.reference_doctype and call_log.reference_docname:
+				_note.reference_doctype = call_log.reference_doctype
+				_note.reference_docname = call_log.reference_docname
+			elif getattr(call_log, "links", None):
+				for link in call_log.links:
+					if link.link_doctype in ("Contact", "CRM Lead", "CRM Deal"):
+						_note.reference_doctype = link.link_doctype
+						_note.reference_docname = link.link_name
+						break
+		_note.save(ignore_permissions=True)
 
-	call_log = frappe.get_cached_doc("CRM Call Log", call_sid)
 	call_log.link_with_reference_doc("FCRM Note", _note.name)
+	if not call_log.note:
+		call_log.note = _note.name
 	call_log.save(ignore_permissions=True)
 
 	return _note

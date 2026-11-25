@@ -21,6 +21,13 @@ export const activeCallState = reactive({
   errorMessage: '',
   callerId: '',
   callerIdLabel: '',
+  utterances: [],
+  transcriptionStatus: 'idle', // 'idle' | 'listening' | 'transcribing' | 'paused' | 'error' | 'unavailable'
+  transcriptionError: '',
+  isMinimized: false,
+  isMaximized: false,
+  saveStatus: 'idle', // 'idle' | 'saving' | 'saved' | 'failed'
+  lastSavedTime: '',
 })
 
 // Call handlers registered by active telephony client (TwilioCallUI)
@@ -31,6 +38,8 @@ const callHandlers = {
   toggleMute: null,
   sendDigit: null,
   saveNote: null,
+  openCallWindow: null,
+  minimizeCallWindow: null,
 }
 
 export function registerTelephonyHandlers(handlers = {}) {
@@ -114,6 +123,24 @@ export function useTelephonyCall() {
     activeCallState.callerIdLabel = label || number
   }
 
+  function openCallWindow() {
+    activeCallState.isMinimized = false
+    if (callHandlers.openCallWindow) {
+      callHandlers.openCallWindow()
+    }
+  }
+
+  function minimizeCallWindow() {
+    activeCallState.isMinimized = true
+    if (callHandlers.minimizeCallWindow) {
+      callHandlers.minimizeCallWindow()
+    }
+  }
+
+  function toggleMaximize() {
+    activeCallState.isMaximized = !activeCallState.isMaximized
+  }
+
   function resetCallState() {
     activeCallState.status = 'idle'
     activeCallState.onCall = false
@@ -126,6 +153,13 @@ export function useTelephonyCall() {
     activeCallState.notes = ''
     activeCallState.noteDocName = ''
     activeCallState.errorMessage = ''
+    activeCallState.utterances = []
+    activeCallState.transcriptionStatus = 'idle'
+    activeCallState.transcriptionError = ''
+    activeCallState.saveStatus = 'idle'
+    activeCallState.lastSavedTime = ''
+    activeCallState.isMinimized = false
+    activeCallState.isMaximized = false
   }
 
   return {
@@ -137,6 +171,9 @@ export function useTelephonyCall() {
     sendDigit,
     updateNotes,
     setCallerId,
+    openCallWindow,
+    minimizeCallWindow,
+    toggleMaximize,
     resetCallState,
   }
 }

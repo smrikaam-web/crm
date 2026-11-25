@@ -206,6 +206,9 @@ def create_lead_from_incoming_email(doc: Communication, method: str | None = Non
 	if not doc.email_account:
 		return
 
+	if is_bounce_email(doc):
+		return
+
 	create_lead_enabled = frappe.db.get_value(
 		"Email Account", doc.email_account, "create_lead_from_incoming_email"
 	)
@@ -250,29 +253,229 @@ _AUTOMATED_SENDER_LOCAL_PARTS = frozenset(
 		"mailer-daemon",
 		"mailer_daemon",
 		"postmaster",
+		"bounce",
+		"bounces",
+		"daemon",
+		"mail-daemon",
+		"mail_daemon",
+		"autoresponder",
 	}
 )
 
+_BOUNCE_SENDER_PATTERNS = _AUTOMATED_SENDER_LOCAL_PARTS
 
-def _is_automated_email_sender(sender: str | None) -> bool:
-	"""Newsletters and machine mail should not become CRM Leads.
+_BOUNCE_SUBJECT_KEYWORDS = [
+	"delivery status notification",
+	"message delivery failure",
+	"undelivered mail",
+	"mail delivery failed",
+	"failure notice",
+	"returned mail",
+	"undeliverable",
+	"delivery notification: delivery has failed",
+	"mail delivery subsystem",
+	"delivery failure",
+	"delayed delivery",
+	"warning: could not send message",
+]
 
-	Communication does not store the raw headers, so Auto-Submitted and
-	List-Unsubscribe cannot be checked here. The local-part is the signal
-	that is always on the document.
-	"""
-	if not sender or "@" not in sender:
-		return False
+_BOUNCE_CONTENT_INDICATORS = [
+	"multipart/report",
+	"message/delivery-status",
+	"delivery to the following recipients failed",
+	"your message wasn't delivered to",
+	"your message could not be delivered",
+	"this is an automatically generated delivery status notification",
+	"action: failed",
+	"remote-mta:",
+	"reporting-mta:",
+	"diagnostic-code:",
+	"status: 5.",
+	"status: 4.",
+	"550 5.1.1",
+	"554 5.7.1",
+	"address couldn't be found",
+	"recipient address rejected",
+	"user unknown",
+	"mailbox unavailable",
+	"host or domain name not found",
+]
 
-	# Communication.sender may be "Notifications <no-reply@example.com>".
+
+def is_bounce_or_automated_email(sender: str | None) -> bool:
+	"""Check if an email address belongs to automated notifications or bounce systems."""
+	if not sender:
+		return True
+	sender_clean = sender.strip().strip("<>").strip()
+	if not sender_clean or sender_clean == "<>":
+		return True
+	if "@" not in sender_clean:
+		return sender_clean.lower() in _BOUNCE_SENDER_PATTERNS
+
 	match = re.search(r"<?([^<>\s]+@[^<>\s]+)>?", sender)
-	address = match.group(1) if match else sender
+	address = match.group(1) if match else sender_clean
 	local = address.split("@", 1)[0].strip().lower()
 	local = re.sub(r"\+.*$", "", local)
-	if local in _AUTOMATED_SENDER_LOCAL_PARTS:
+	if local in _BOUNCE_SENDER_PATTERNS:
 		return True
-	# Prefixed machine addresses such as sc-noreply@google.com.
-	return local.endswith(("-noreply", "_noreply", "-no-reply", "_no-reply"))
+	return local.endswith(("-noreply", "_noreply", "-no-reply", "_no-reply", "-bounce", "_bounce", "-bounces"))
+
+
+def is_bounce_contact_name(name: str | None) -> bool:
+	"""Check if a contact name or title is a bounce / system daemon identifier."""
+	if not name:
+		return False
+	n = name.strip().lower()
+	bounce_names = {
+		"mailer daemon",
+		"mailer-daemon",
+		"mailer_daemon",
+		"postmaster",
+		"noreply",
+		"no-reply",
+		"no_reply",
+		"bounce",
+		"daemon",
+	}
+	if n in bounce_names or n.startswith(("mailer daemon", "mailer-daemon", "postmaster", "noreply", "no-reply")):
+		return True
+	return False
+
+
+def is_bounce_email(doc: Communication) -> bool:
+	"""Detect automated delivery failure and bounce messages using reliable email headers,
+	metadata, subjects, and DSN indicators.
+	"""
+	if doc.doctype != "Communication" or getattr(doc, "sent_or_received", "") != "Received":
+		return False
+
+	sender = getattr(doc, "sender", None) or ""
+	# 1. Fast check: sender local-part is mailer-daemon, postmaster, bounce, etc.
+	if sender:
+		sender_clean = sender.strip().strip("<>").lower()
+		if not sender_clean or sender_clean == "<>" or any(p in sender_clean for p in ["mailer-daemon", "mailer_daemon", "postmaster"]):
+			return True
+
+	# 2. Subject check
+	subject = (getattr(doc, "subject", None) or "").strip().lower()
+	for kw in _BOUNCE_SUBJECT_KEYWORDS:
+		if kw in subject:
+			return True
+
+	# 3. Content / Text Content DSN indicators
+	content = (getattr(doc, "content", None) or "").lower()
+	text_content = (getattr(doc, "text_content", None) or "").lower()
+	full_text = f"{content}\n{text_content}"
+
+	match_count = 0
+	for ind in _BOUNCE_CONTENT_INDICATORS:
+		if ind in full_text:
+			match_count += 1
+			if match_count >= 1 and (is_bounce_or_automated_email(sender) or "delivery" in subject or "undeliver" in subject or "fail" in subject):
+				return True
+			if match_count >= 2:
+				return True
+
+	return False
+
+
+def extract_bounced_recipient(doc: Communication) -> str | None:
+	"""Extract the failed recipient email address from bounce notification content."""
+	text = f"{doc.text_content or ''}\n{doc.content or ''}"
+	patterns = [
+		r"Delivery to the following recipients failed(?: permanently)?:\s*[*•-]?\s*<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"Your message wasn't delivered to\s+<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"Your message could not be delivered to\s+<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"Final-Recipient:\s*(?:rfc822;)?\s*<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"Original-Recipient:\s*(?:rfc822;)?\s*<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"Failed recipient:\s*<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"To:\s*<?([^\s<>@]+@[^\s<>@]+)>?",
+		r"<([^\s<>@]+@[^\s<>@]+)>:?\s*(?:user unknown|mailbox unavailable|550|554|host not found)",
+	]
+	for p in patterns:
+		m = re.search(p, text, re.IGNORECASE)
+		if m:
+			candidate = m.group(1).strip().strip("<>\"'.,;")
+			if "@" in candidate and not is_bounce_or_automated_email(candidate):
+				return candidate
+	return None
+
+
+def process_bounce_notification(doc: Communication) -> bool:
+	"""Handle an incoming bounce notification:
+	1. Mark incoming bounce communication as Bounced.
+	2. Find the original outbound email that failed.
+	3. Mark the outbound email as Bounced.
+	4. Link bounce message to the original prospect without creating a Contact.
+	"""
+	try:
+		doc.delivery_status = "Bounced"
+		doc.db_set("delivery_status", "Bounced", update_modified=False)
+
+		matched_comm = None
+		# 1. Match via in_reply_to or references
+		if getattr(doc, "in_reply_to", None) and frappe.db.exists("Communication", doc.in_reply_to):
+			matched_comm = frappe.get_doc("Communication", doc.in_reply_to)
+
+		# 2. Match via Message-ID quoted in bounce body
+		if not matched_comm:
+			text = f"{doc.text_content or ''}\n{doc.content or ''}"
+			msg_ids = re.findall(r"Message-ID:\s*<([^>]+)>", text, re.IGNORECASE)
+			for mid in msg_ids:
+				parent = frappe.db.get_value(
+					"Communication",
+					{"message_id": ["in", [mid, f"<{mid}>"]]},
+					["name", "reference_doctype", "reference_name", "delivery_status"],
+					as_dict=True,
+				)
+				if parent:
+					matched_comm = parent
+					break
+
+		# 3. Match via extracted bounced recipient
+		failed_recipient = extract_bounced_recipient(doc)
+		if not matched_comm and failed_recipient:
+			outbound = frappe.db.get_all(
+				"Communication",
+				filters={
+					"sent_or_received": "Sent",
+					"recipients": ["like", f"%{failed_recipient}%"],
+				},
+				order_by="creation desc",
+				limit=1,
+				fields=["name", "reference_doctype", "reference_name", "delivery_status"],
+			)
+			if outbound:
+				matched_comm = outbound[0]
+
+		if matched_comm:
+			# Update original outbound email delivery_status to "Bounced"
+			frappe.db.set_value("Communication", matched_comm.name, "delivery_status", "Bounced", update_modified=False)
+			doc.in_reply_to = matched_comm.name
+			doc.db_set("in_reply_to", matched_comm.name, update_modified=False)
+
+			ref_doctype = getattr(matched_comm, "reference_doctype", None)
+			ref_name = getattr(matched_comm, "reference_name", None)
+			if ref_doctype and ref_name and ref_doctype != "Communication" and not is_bounce_contact_name(ref_name):
+				doc.reference_doctype = ref_doctype
+				doc.reference_name = ref_name
+				doc.db_set("reference_doctype", ref_doctype, update_modified=False)
+				doc.db_set("reference_name", ref_name, update_modified=False)
+		else:
+			# No match: ensure it is NOT linked to any Contact
+			if doc.reference_doctype == "Contact" and is_bounce_contact_name(doc.reference_name):
+				doc.reference_doctype = None
+				doc.reference_name = None
+				doc.db_set("reference_doctype", None, update_modified=False)
+				doc.db_set("reference_name", None, update_modified=False)
+
+		frappe.publish_realtime("crm_tasks_updated")
+		return True
+	except Exception:
+		return False
+
+
+_is_automated_email_sender = is_bounce_or_automated_email
 
 
 def on_comment_insert(doc: Comment, method: str | None = None):
@@ -298,6 +501,10 @@ def handle_incoming_email_reply(doc: Communication):
 	associate with Contact/Lead/Task, mark original communication as Replied,
 	and notify the assigned CRM user."""
 	if doc.doctype != "Communication" or getattr(doc, "sent_or_received", "") != "Received":
+		return
+
+	if is_bounce_email(doc):
+		process_bounce_notification(doc)
 		return
 
 	matched_comm = None
@@ -392,9 +599,9 @@ def handle_incoming_email_reply(doc: Communication):
 
 		# Also check if contact can be resolved
 		contact_name = None
-		if doc.reference_doctype == "Contact":
+		if doc.reference_doctype == "Contact" and not is_bounce_contact_name(doc.reference_name):
 			contact_name = doc.reference_name
-		elif doc.sender:
+		elif doc.sender and not is_bounce_or_automated_email(doc.sender):
 			contact_name = frappe.db.get_value("Contact", {"email_id": doc.sender.strip()}, "name")
 			if not contact_name:
 				c_match = frappe.db.sql("""
@@ -405,6 +612,9 @@ def handle_incoming_email_reply(doc: Communication):
 				""", (doc.sender.strip(), doc.sender.strip()))
 				if c_match:
 					contact_name = c_match[0][0]
+
+		if contact_name and is_bounce_contact_name(contact_name):
+			contact_name = None
 
 		# If we have contact and reference is not set or not Contact, set it to Contact
 		if contact_name and (not (doc.reference_doctype and doc.reference_name) or doc.reference_doctype == "Communication"):
@@ -434,7 +644,7 @@ def handle_incoming_email_reply(doc: Communication):
 		return
 
 	# If no header match, fallback to match sender email with Contact
-	if (not (doc.reference_doctype and doc.reference_name) or doc.reference_doctype == "Communication") and doc.sender:
+	if (not (doc.reference_doctype and doc.reference_name) or doc.reference_doctype == "Communication") and doc.sender and not is_bounce_or_automated_email(doc.sender):
 		sender_email = doc.sender.strip()
 		contact_match = frappe.db.sql("""
 			SELECT c.name FROM `tabContact` c
@@ -444,6 +654,8 @@ def handle_incoming_email_reply(doc: Communication):
 		""", (sender_email, sender_email))
 		if contact_match:
 			contact_name = contact_match[0][0]
+			if is_bounce_contact_name(contact_name):
+				return
 			doc.reference_doctype = "Contact"
 			doc.reference_name = contact_name
 			doc.db_set("reference_doctype", "Contact", update_modified=False)
@@ -518,6 +730,9 @@ def notify_user_of_reply(user: str, comm_doc: Communication, parent_comm: dict |
 
 
 def on_communication_insert(doc: Communication, method: str | None = None):
+	if is_bounce_email(doc):
+		process_bounce_notification(doc)
+		return
 	handle_incoming_email_reply(doc)
 	create_lead_from_incoming_email(doc)
 

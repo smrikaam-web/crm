@@ -665,7 +665,12 @@ const {
 
 const showDetailKeypad = ref(false)
 const showDetailNotes = ref(false)
-const detailCallNotes = ref('')
+const detailCallNotes = computed({
+  get: () => callState.notes || '',
+  set: (val) => {
+    callState.notes = val
+  },
+})
 const dtmfDigits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
 let detailNotesTimeout = null

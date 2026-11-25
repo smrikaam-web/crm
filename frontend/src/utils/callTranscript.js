@@ -93,3 +93,62 @@ export function appendOrUpdateUtterance(utterances, newUtterance) {
 
   return list
 }
+
+/**
+ * Format elapsed seconds or duration string into standard mm:ss format.
+ * @param {number|string} secondsOrTime
+ * @returns {string} e.g. "00:08", "01:15"
+ */
+export function formatSpeechTimestamp(secondsOrTime) {
+  if (secondsOrTime == null) return '00:00'
+
+  if (typeof secondsOrTime === 'string') {
+    const trimmed = secondsOrTime.trim()
+    // If it's already hh:mm:ss, take the last mm:ss or format
+    if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      const parts = trimmed.split(':')
+      return `${parts[1]}:${parts[2]}`
+    }
+    if (/^\d{2}:\d{2}$/.test(trimmed)) {
+      return trimmed
+    }
+    const parsed = Number(trimmed)
+    if (!isNaN(parsed)) {
+      return formatSpeechTimestamp(parsed)
+    }
+    return trimmed
+  }
+
+  const secs = Math.max(0, Math.floor(Number(secondsOrTime) || 0))
+  const minutes = Math.floor(secs / 60)
+  const remainingSecs = secs % 60
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`
+}
+
+/**
+ * Checks whether the current browser runtime supports the Web Speech Recognition API.
+ * @returns {boolean}
+ */
+export function hasSpeechRecognitionSupport() {
+  return (
+    typeof window !== 'undefined' &&
+    Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+  )
+}
+
+/**
+ * Formats a user-friendly display name for a transcript speaker.
+ * @param {string} speaker - 'agent' or 'customer'
+ * @param {string} [contactName] - Full name of the contact/prospect
+ * @param {string} [agentName] - Full name of the logged-in agent
+ * @returns {string} e.g. "Sam Walker (You)" or "Mohamad Farhad"
+ */
+export function getSpeakerDisplayName(speaker, contactName, agentName) {
+  const norm = (speaker || '').toLowerCase()
+  if (norm === 'agent' || norm === 'user') {
+    const name = agentName || 'Agent'
+    return `${name} (You)`
+  }
+  return contactName || 'Customer'
+}
+

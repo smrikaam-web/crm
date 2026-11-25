@@ -1249,3 +1249,58 @@ def update_contact_social_links(
 		"custom_upwork": frappe.db.get_value("Contact", contact, "custom_upwork") or "",
 		"custom_website": frappe.db.get_value("Contact", contact, "custom_website") or "",
 	}
+
+
+def prevent_auto_contact_from_email_sync(doc, method=None):
+	"""Prevent Contact creation if triggered by automated mail, bounce messages, or email sync.
+	Contacts in Smrikaam CRM must only be created through intentional operations:
+	Admin CSV/Excel imports, Lead conversion, or explicit manual contact creation.
+	"""
+	from crm.utils import is_bounce_or_automated_email, is_bounce_contact_name
+
+	# 1. Block automated or bounce email addresses
+	emails_to_check = []
+	if getattr(doc, "email_id", None):
+		emails_to_check.append(doc.email_id)
+	for email_row in getattr(doc, "email_ids", []) or []:
+		if getattr(email_row, "email_id", None):
+			emails_to_check.append(email_row.email_id)
+
+	for email in emails_to_check:
+		if is_bounce_or_automated_email(email):
+			frappe.throw(
+				_("System-generated or bounce addresses cannot be created as CRM Contacts."),
+				frappe.ValidationError,
+			)
+
+	if is_bounce_contact_name(doc.first_name) or is_bounce_contact_name(doc.name):
+		frappe.throw(
+			_("System-generated or bounce records cannot be created as CRM Contacts."),
+			frappe.ValidationError,
+		)
+
+	# 2. Block if called from email sync / communication timeline links stack
+	if getattr(frappe.flags, "in_email_sync", False):
+		frappe.throw(
+			_("Automatic contact creation from email synchronization is disabled in Smrikaam CRM."),
+			frappe.ValidationError,
+		)
+
+	import inspect
+	try:
+		for frame_info in inspect.stack()[1:10]:
+			filename = frame_info.filename.replace("\\", "/")
+			if "communication/communication.py" in filename and frame_info.function in ("get_contacts", "set_timeline_links"):
+				frappe.throw(
+					_("Automatic contact creation from email synchronization is disabled in Smrikaam CRM."),
+					frappe.ValidationError,
+				)
+			if "email/receive.py" in filename:
+				frappe.throw(
+					_("Automatic contact creation from incoming email processing is disabled in Smrikaam CRM."),
+					frappe.ValidationError,
+				)
+	except frappe.ValidationError:
+		raise
+	except Exception:
+		pass

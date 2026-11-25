@@ -39,3 +39,4 @@ crm.patches.v1_0.set_setup_completed_for_existing_sites
 crm.patches.v1_0.add_data_import_quick_filters
 crm.patches.v1_0.add_daily_allocation_and_call_log_indexes
 crm.patches.v1_0.seed_default_website_booking_sources
+crm.patches.v1_0.disable_email_account_create_contact

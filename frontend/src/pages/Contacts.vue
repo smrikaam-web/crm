@@ -350,25 +350,19 @@ const columns = computed(() => {
       label: __('Name'),
       type: 'Data',
       key: 'full_name',
-      width: '16rem',
-    },
-    {
-      label: __('Designation'),
-      type: 'Data',
-      key: 'designation',
-      width: '12rem',
+      width: '18rem',
     },
     {
       label: __('Email'),
       type: 'Data',
       key: 'email_id',
-      width: '14rem',
+      width: '15rem',
     },
     {
       label: __('Phone'),
       type: 'Data',
       key: 'mobile_no',
-      width: '11rem',
+      width: '12rem',
     },
     {
       label: __('Country'),

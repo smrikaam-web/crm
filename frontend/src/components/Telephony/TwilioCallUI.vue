@@ -1,219 +1,352 @@
 <template>
+  <!-- Full Call Window (Live Transcript + Call Notes) -->
   <div v-show="showCallPopup && !isDialPadRoute" v-bind="$attrs">
     <div
       ref="callPopup"
-      class="fixed z-20 flex w-72 cursor-move select-none flex-col rounded-6 bg-surface-gray-10 p-4 text-ink-gray-2 shadow-2xl"
-      :style="style"
+      class="fixed z-50 flex flex-col rounded-2xl bg-[#18191e] text-ink-gray-2 shadow-2xl border border-surface-gray-7/80 transition-all duration-200 ease-out"
+      :class="[
+        isMaximized
+          ? 'fixed inset-4 w-auto h-auto max-w-none max-h-none'
+          : 'w-[780px] max-w-[95vw] h-[550px] max-h-[88vh]',
+      ]"
+      :style="isMaximized ? undefined : style"
     >
-      <div class="flex flex-row-reverse items-center gap-1">
-        <MinimizeIcon
-          class="h-4 w-4 cursor-pointer"
-          @click="toggleCallWindow"
-        />
-      </div>
-      <div class="flex flex-col items-center justify-center gap-3">
-        <Avatar
-          v-if="contact?.image"
-          :image="contact.image"
-          :label="contact.full_name"
-          class="relative flex items-center justify-center [&>div]:text-[30px]"
-          :class="[
-            onCall || calling ? '' : 'pulse',
-            onCall ? '!h-16 !w-16 [&>div]:!text-[20px]' : '!h-24 !w-24',
-          ]"
-        />
-        <div class="flex flex-col items-center justify-center gap-1">
-          <div class="text-2xl-medium">
-            {{ contact?.full_name ?? __('Unknown') }}
+      <!-- Header / Drag Bar -->
+      <div
+        ref="dragHandle"
+        class="flex items-center justify-between px-5 py-3 border-b border-surface-gray-7/50 select-none cursor-move"
+      >
+        <!-- Contact info & Status -->
+        <div class="flex items-center gap-3">
+          <Avatar
+            v-if="contact?.image"
+            :image="contact.image"
+            :label="contact.full_name"
+            class="relative flex !h-9 !w-9 items-center justify-center flex-shrink-0"
+          />
+          <div class="flex flex-col">
+            <div class="text-base font-bold text-white leading-tight">
+              {{ contact?.full_name || phoneNumber || __('Active Call') }}
+            </div>
+            <div class="text-xs text-ink-gray-4 leading-tight mt-0.5">
+              {{ phoneNumber || contact?.mobile_no }}
+            </div>
           </div>
-          <div class="text-sm text-ink-gray-5">{{ phoneNumber || contact?.mobile_no }}</div>
-        </div>
-        <CountUpTimer ref="counterUp">
-          <div v-if="onCall" class="my-1 text-base text-center">
-            <span class="text-xs text-emerald-400 font-semibold block uppercase tracking-wider mb-0.5">
+
+          <!-- Connection Status Badge -->
+          <div class="ml-2 flex items-center gap-2">
+            <span
+              v-if="onCall"
+              class="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-400"
+            >
+              <span class="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
               {{ __('Connected') }}
             </span>
-            {{ counterUp?.updatedTime }}
-          </div>
-        </CountUpTimer>
-        <div v-if="!onCall" class="my-1 text-base text-center">
-          <span v-if="callStatus === 'initiating'">{{ __('Connecting...') }}</span>
-          <span v-else-if="callStatus === 'ringing'">{{ __('Ringing...') }}</span>
-          <span v-else-if="callStatus === 'connected'">{{ __('Connected') }}</span>
-          <span v-else-if="callStatus === 'disconnected' || callStatus === 'completed'">{{ __('Call ended') }}</span>
-          <span v-else-if="callStatus === 'cancelled'">{{ __('Call cancelled') }}</span>
-          <span v-else-if="callStatus === 'failed'" class="text-surface-red-5 font-medium">
-            {{ __('Call Failed') }}
-          </span>
-          <span v-else-if="calling">{{ __('Calling...') }}</span>
-          <span v-else>{{ __('Incoming call...') }}</span>
-        </div>
+            <span
+              v-else-if="calling || callStatus === 'initiating'"
+              class="inline-flex items-center gap-1.5 rounded-full bg-blue-950/80 border border-blue-500/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-blue-400"
+            >
+              <span class="size-1.5 rounded-full bg-blue-400 animate-pulse" />
+              {{ __('Calling...') }}
+            </span>
+            <span
+              v-else-if="callStatus === 'ringing'"
+              class="inline-flex items-center gap-1.5 rounded-full bg-amber-950/80 border border-amber-500/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-amber-400"
+            >
+              <span class="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+              {{ __('Ringing...') }}
+            </span>
+            <span
+              v-else-if="callStatus === 'failed'"
+              class="inline-flex items-center gap-1.5 rounded-full bg-red-950/80 border border-red-500/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-red-400"
+            >
+              {{ __('Call Failed') }}
+            </span>
+            <span
+              v-else-if="callStatus === 'disconnected' || callStatus === 'completed'"
+              class="inline-flex items-center gap-1.5 rounded-full bg-surface-gray-8 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-ink-gray-4"
+            >
+              {{ __('Call Ended') }}
+            </span>
 
-        <!-- Failure Details & Retry Area -->
-        <div
-          v-if="callStatus === 'failed'"
-          class="flex flex-col items-center gap-2 px-2 text-center w-full"
-        >
-          <div
-            v-if="callErrorMessage"
-            class="text-xs text-ink-gray-4 leading-relaxed max-w-[240px] break-words"
-          >
-            {{ callErrorMessage }}
-          </div>
-          <div class="flex gap-2 mt-2">
-            <Button
-              size="sm"
-              variant="outline"
-              :label="__('Close')"
-              class="rounded-6"
-              @click="closeCallPopup"
-            />
-            <Button
-              size="sm"
-              variant="solid"
-              theme="green"
-              :label="__('Retry')"
-              class="rounded-6 text-ink-base"
-              :iconLeft="PhoneIcon"
-              @click="retryCall"
-            />
+            <!-- Duration Timer -->
+            <CountUpTimer ref="counterUp">
+              <span v-if="onCall" class="text-sm font-semibold text-white font-mono ml-1">
+                {{ counterUp?.updatedTime || '00:00' }}
+              </span>
+            </CountUpTimer>
           </div>
         </div>
 
-        <!-- Live Transcript Area -->
-        <div
-          v-if="onCall || utterances.length > 0"
-          class="flex w-full flex-col gap-1.5 rounded-lg bg-surface-gray-9/70 p-2.5 text-left border border-surface-gray-7/50"
-        >
-          <div
-            class="flex items-center justify-between text-[11px] font-semibold text-ink-gray-4 uppercase tracking-wider"
+        <!-- Window Actions (Minimize, Maximize, Close) -->
+        <div class="flex items-center gap-1 text-ink-gray-4" @mousedown.stop>
+          <button
+            type="button"
+            class="p-1 rounded-md hover:bg-surface-gray-8 hover:text-white transition-colors"
+            :title="__('Minimize')"
+            @click="toggleCallWindow"
           >
-            <div class="flex items-center gap-1.5">
-              <span
-                class="size-2 rounded-full"
-                :class="
-                  transcriptionStatus === 'error'
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500 animate-pulse'
-                "
-              />
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="p-1 rounded-md hover:bg-surface-gray-8 hover:text-white transition-colors"
+            :title="isMaximized ? __('Restore') : __('Maximize')"
+            @click="toggleMaximize"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path v-if="!isMaximized" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              <path v-else d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="p-1 rounded-md hover:bg-surface-gray-8 hover:text-white transition-colors"
+            :title="__('Close')"
+            @click="closeCallPopup"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Call Error Notice (if call failed) -->
+      <div
+        v-if="callStatus === 'failed'"
+        class="mx-4 mt-3 flex items-center justify-between rounded-lg bg-red-950/60 border border-red-500/40 p-2.5 text-xs text-red-300"
+      >
+        <span>{{ callErrorMessage || __('Call could not be completed.') }}</span>
+        <Button
+          size="xs"
+          variant="solid"
+          theme="green"
+          :label="__('Retry')"
+          class="rounded text-ink-base"
+          @click="retryCall"
+        />
+      </div>
+
+      <!-- Main Body: 2 Side-by-Side Panels (Live Transcript & Call Notes) -->
+      <div class="flex-1 grid grid-cols-2 gap-3 p-4 min-h-0 overflow-hidden">
+        <!-- LEFT PANEL: Live Transcript -->
+        <div class="flex flex-col rounded-xl bg-[#121316] border border-surface-gray-7/60 overflow-hidden min-h-0">
+          <!-- Transcript Tabs & Controls Header -->
+          <div class="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-surface-gray-7/40 bg-[#16171c]">
+            <!-- Tab Pill -->
+            <div class="flex items-center gap-1.5 rounded-lg bg-[#251e3e] border border-purple-500/60 px-3 py-1 text-xs font-semibold text-purple-200 shadow-sm">
               <span>{{ __('Live Transcript') }}</span>
             </div>
-            <span
-              v-if="transcriptionStatus === 'error'"
-              class="text-[10px] lowercase text-ink-gray-5"
-            >
-              {{ __('unavailable') }}
-            </span>
+
+            <!-- Sub-actions: LIVE indicator & Font Sizing -->
+            <div class="flex items-center gap-2">
+              <div
+                v-if="onCall"
+                class="flex items-center gap-1 rounded bg-red-950/60 border border-red-500/30 px-2 py-0.5 text-[10px] font-bold text-red-400 tracking-wide"
+              >
+                <span class="size-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span>{{ __('LIVE') }}</span>
+              </div>
+
+              <!-- Font Size Toggle -->
+              <div class="flex items-center rounded border border-surface-gray-7/60 bg-[#18191e] p-0.5 text-[11px] text-ink-gray-4">
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded transition-colors"
+                  :class="{ 'bg-surface-gray-7 text-white font-semibold': transcriptFontSize === 'xs' }"
+                  title="Smaller text"
+                  @click="transcriptFontSize = 'xs'"
+                >
+                  A-
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded transition-colors"
+                  :class="{ 'bg-surface-gray-7 text-white font-semibold': transcriptFontSize === 'sm' }"
+                  title="Default text"
+                  @click="transcriptFontSize = 'sm'"
+                >
+                  A
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded transition-colors"
+                  :class="{ 'bg-surface-gray-7 text-white font-semibold': transcriptFontSize === 'base' }"
+                  title="Larger text"
+                  @click="transcriptFontSize = 'base'"
+                >
+                  A+
+                </button>
+              </div>
+            </div>
           </div>
 
+          <!-- Transcript Scrollable Stream -->
           <div
             ref="transcriptContainer"
-            class="flex max-h-48 min-h-[72px] w-full flex-col gap-2 overflow-y-auto pr-1 text-xs select-text scroll-smooth"
+            class="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3 select-text scroll-smooth"
           >
+            <!-- Empty States -->
             <div
               v-if="utterances.length === 0"
-              class="flex h-full min-h-[60px] items-center justify-center text-center text-ink-gray-5 italic text-[11px]"
+              class="flex flex-col items-center justify-center h-full text-center py-8 text-ink-gray-5"
             >
-              {{
-                transcriptionStatus === 'error'
-                  ? __('Live transcription unavailable')
-                  : __('Listening for speech...')
-              }}
+              <div v-if="transcriptionStatus === 'error' || transcriptionStatus === 'unavailable'" class="flex flex-col items-center gap-1.5 max-w-[260px]">
+                <span class="size-2 rounded-full bg-amber-500" />
+                <span class="text-xs font-medium text-ink-gray-4">
+                  {{ __('Live transcription unavailable') }}
+                </span>
+                <span class="text-[11px] text-ink-gray-5">
+                  {{ transcriptionError || __('Web Speech API or Twilio transcription stream is not active for this call.') }}
+                </span>
+              </div>
+              <div v-else-if="transcriptionStatus === 'paused'" class="flex items-center gap-2 text-xs italic">
+                <span class="size-2 rounded-full bg-amber-400" />
+                <span>{{ __('Speech recognition paused (muted)') }}</span>
+              </div>
+              <div v-else class="flex flex-col items-center gap-2 text-xs italic">
+                <div class="flex items-center gap-1.5">
+                  <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{{ __('Listening for speech...') }}</span>
+                </div>
+                <span class="text-[11px] text-ink-gray-6 font-normal">
+                  {{ __('Speech is automatically transcribed in real time.') }}
+                </span>
+              </div>
             </div>
 
+            <!-- Utterance Items -->
             <div
               v-for="(item, index) in utterances"
               :key="index"
-              class="flex flex-col gap-0.5"
+              class="flex items-start gap-2.5 text-left"
             >
-              <div
-                class="text-[11px] font-semibold"
-                :class="
-                  item.speaker === 'agent'
-                    ? 'text-blue-400'
-                    : 'text-emerald-400'
-                "
-              >
-                {{ item.speaker === 'agent' ? __('Agent') : __('Customer') }}
-              </div>
-              <div
-                class="rounded bg-surface-gray-8/60 px-2 py-1 text-ink-gray-2 leading-relaxed whitespace-pre-wrap break-words"
-                :class="{ 'opacity-75 italic': !item.isFinal }"
-              >
-                {{ item.text }}
+              <!-- Timestamp (mm:ss) -->
+              <span class="font-mono text-[11px] text-ink-gray-5 pt-0.5 w-10 flex-shrink-0">
+                {{ formatSpeechTimestamp(item.timestamp) }}
+              </span>
+
+              <!-- Content (Speaker + Text) -->
+              <div class="flex-1 flex flex-col gap-0.5">
+                <div
+                  class="text-xs font-semibold leading-tight"
+                  :class="item.speaker === 'agent' ? 'text-sky-400' : 'text-emerald-400'"
+                >
+                  {{ getSpeakerDisplayName(item.speaker, contact?.full_name, currentUserName) }}
+                </div>
+                <div
+                  class="text-ink-gray-2 leading-relaxed whitespace-pre-wrap break-words"
+                  :class="[
+                    transcriptFontSize === 'xs'
+                      ? 'text-xs'
+                      : transcriptFontSize === 'base'
+                        ? 'text-base'
+                        : 'text-sm',
+                    { 'opacity-75 italic': !item.isFinal },
+                  ]"
+                >
+                  {{ item.text }}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div v-if="onCall" class="flex gap-2">
-          <Button
-            :icon="muted ? 'lucide-mic-off' : 'lucide-mic'"
-            class="rounded-full"
-            @click="toggleMute"
-          />
-          <Button
-            class="cursor-pointer rounded-full"
-            :class="{ 'bg-surface-gray-7': showKeypad }"
-            :tooltip="__('Dialpad')"
-            :icon="DialpadIcon"
-            @click="toggleKeypad"
-          />
-          <Button
-            class="cursor-pointer rounded-full"
-            :class="{ 'bg-surface-gray-7 text-white ring-1 ring-white/20': showNotesPanel }"
-            :tooltip="__('Call Notes')"
-            :icon="NoteIcon"
-            @click="toggleNotesPanel"
-          />
-          <Button
-            class="rounded-full bg-surface-red-7 hover:bg-surface-red-8 rotate-[135deg] text-ink-base"
-            :tooltip="__('Hang Up')"
-            :icon="PhoneIcon"
-            @click="hangUpCall"
-          />
-        </div>
-
-        <!-- Dedicated In-Call Notes Area -->
-        <div
-          v-if="onCall && showNotesPanel"
-          class="flex w-full flex-col gap-2 rounded-lg bg-surface-gray-9/90 p-2.5 text-left border border-surface-gray-7/60 shadow-inner"
-        >
-          <div class="flex items-center justify-between text-[11px] font-semibold text-ink-gray-3 uppercase tracking-wider">
-            <div class="flex items-center gap-1.5">
-              <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
+        <!-- RIGHT PANEL: Call Notes -->
+        <div class="flex flex-col rounded-xl bg-[#121316] border border-surface-gray-7/60 overflow-hidden min-h-0">
+          <!-- Notes Header + Formatting Toolbar -->
+          <div class="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-surface-gray-7/40 bg-[#16171c]">
+            <!-- Tab Pill -->
+            <div class="flex items-center gap-1.5 rounded-lg bg-[#202127] border border-surface-gray-7/60 px-3 py-1 text-xs font-semibold text-ink-gray-2 shadow-sm">
               <span>{{ __('Call Notes') }}</span>
             </div>
-            <div class="flex items-center gap-2">
-              <span v-if="isSavingNote" class="text-[10px] lowercase text-amber-400 font-normal">
-                {{ __('saving...') }}
-              </span>
-              <span v-else-if="noteSavedNotice" class="text-[10px] lowercase text-emerald-400 font-normal">
-                {{ __('saved') }}
-              </span>
+
+            <!-- Formatting Toolbar -->
+            <div class="flex items-center gap-1 text-ink-gray-4" @mousedown.stop>
               <button
                 type="button"
-                class="text-ink-gray-4 hover:text-ink-gray-2 text-xs cursor-pointer p-0.5"
-                @click="showNotesPanel = false"
+                class="size-6 rounded hover:bg-surface-gray-7 hover:text-white font-bold text-xs flex items-center justify-center transition-colors"
+                title="Bold"
+                @click="applyFormatting('bold')"
               >
-                ✕
+                B
+              </button>
+              <button
+                type="button"
+                class="size-6 rounded hover:bg-surface-gray-7 hover:text-white italic text-xs flex items-center justify-center transition-colors"
+                title="Italic"
+                @click="applyFormatting('italic')"
+              >
+                I
+              </button>
+              <button
+                type="button"
+                class="size-6 rounded hover:bg-surface-gray-7 hover:text-white underline text-xs flex items-center justify-center transition-colors"
+                title="Underline"
+                @click="applyFormatting('underline')"
+              >
+                U
+              </button>
+              <div class="h-3 w-px bg-surface-gray-7 mx-0.5" />
+              <button
+                type="button"
+                class="size-6 rounded hover:bg-surface-gray-7 hover:text-white text-xs flex items-center justify-center transition-colors"
+                title="Bullet list"
+                @click="applyFormatting('bullet')"
+              >
+                •=
+              </button>
+              <button
+                type="button"
+                class="size-6 rounded hover:bg-surface-gray-7 hover:text-white text-xs flex items-center justify-center transition-colors font-mono"
+                title="Numbered list"
+                @click="applyFormatting('numbered')"
+              >
+                1.
               </button>
             </div>
           </div>
 
-          <textarea
-            v-model="activeCallState.notes"
-            rows="3"
-            class="w-full resize-none rounded bg-surface-gray-8/80 p-2 text-xs text-ink-gray-2 placeholder:text-ink-gray-5 border border-surface-gray-7/50 focus:border-outline-gray-4 focus:outline-none scroll-smooth leading-relaxed"
-            :placeholder="__('Type notes during call... (auto-saved)')"
-            @input="handleNotesInput"
-          />
+          <!-- Notes Textarea -->
+          <div class="flex-1 flex flex-col p-3 min-h-0 bg-[#121316]">
+            <textarea
+              ref="notesTextarea"
+              v-model="activeCallState.notes"
+              class="flex-1 w-full bg-transparent text-sm text-ink-gray-2 placeholder:text-ink-gray-6 focus:outline-none resize-none leading-relaxed select-text cursor-text font-sans scroll-smooth"
+              :placeholder="__('Type notes during call... (auto-saved)')"
+              @input="handleNotesInput"
+              @keydown.stop
+              @mousedown.stop
+              @click.stop
+            />
+          </div>
 
-          <div class="flex items-center justify-between pt-0.5">
-            <span class="text-[10px] text-ink-gray-5">
-              {{ __('Linked to prospect & call log') }}
-            </span>
+          <!-- Notes Footer: Auto-save status & Manual Save button -->
+          <div class="flex items-center justify-between px-3 py-2 border-t border-surface-gray-7/40 bg-[#16171c] text-xs">
+            <div class="flex items-center gap-1.5">
+              <span v-if="isSavingNote" class="flex items-center gap-1.5 text-amber-400 font-normal">
+                <span class="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>{{ __('Saving...') }}</span>
+              </span>
+              <span v-else-if="saveFailedNotice" class="flex items-center gap-1 text-red-400">
+                <span>⚠</span>
+                <span>{{ __('Save failed') }}</span>
+              </span>
+              <span v-else-if="lastSavedTime || noteSavedNotice" class="flex items-center gap-1 text-emerald-400 font-medium">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{{ __('Auto-saved at {0}', [lastSavedTime || counterUp?.updatedTime || '01:15 PM']) }}</span>
+              </span>
+              <span v-else class="text-ink-gray-5 text-[11px]">
+                {{ __('Linked to prospect & call log') }}
+              </span>
+            </div>
+
             <Button
               size="xs"
               variant="subtle"
@@ -224,160 +357,257 @@
             />
           </div>
         </div>
-        <div
-          v-if="onCall && showKeypad"
-          class="grid w-full grid-cols-3 gap-2 pt-1"
+      </div>
+
+      <!-- Dialpad Overlay Popover (when Keypad toggled) -->
+      <div
+        v-if="showKeypad"
+        class="absolute bottom-20 left-16 z-50 rounded-xl bg-[#1c1d23] p-3 shadow-2xl border border-surface-gray-7/80 grid grid-cols-3 gap-2 w-48"
+        @mousedown.stop
+      >
+        <button
+          v-for="digit in keypadDigits"
+          :key="digit"
+          type="button"
+          class="h-10 rounded-lg bg-surface-gray-8/90 hover:bg-surface-gray-7 text-white font-semibold text-base flex items-center justify-center transition-colors focus:outline-none"
+          @click="sendDigit(digit)"
         >
-          <Button
-            v-for="digit in keypadDigits"
-            :key="digit"
-            variant="subtle"
-            class="!h-9 justify-center text-base font-medium"
-            :label="digit"
-            @click="sendDigit(digit)"
-          />
-        </div>
-        <div v-else-if="calling || callStatus == 'initiating' || callStatus == 'ringing'">
-          <Button
-            size="md"
-            variant="solid"
-            theme="red"
-            :label="__('Cancel')"
-            class="rounded-6 text-ink-base"
-            @click="cancelCall"
+          {{ digit }}
+        </button>
+      </div>
+
+      <!-- Bottom Controls Bar -->
+      <div class="flex items-center justify-between px-5 py-3 border-t border-surface-gray-7/60 bg-[#16171c] rounded-b-2xl select-none">
+        <!-- Left Media Controls -->
+        <div class="flex items-center gap-2.5">
+          <!-- Mic / Mute -->
+          <button
+            type="button"
+            class="size-10 rounded-full flex items-center justify-center transition-colors"
+            :class="
+              muted
+                ? 'bg-red-950/80 text-red-400 border border-red-500/50 hover:bg-red-900/80'
+                : 'bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-200'
+            "
+            :title="muted ? __('Unmute') : __('Mute')"
+            @click="toggleMute"
           >
-            <template #prefix>
-              <PhoneIcon class="rotate-[135deg]" />
-            </template>
-          </Button>
-        </div>
-        <div v-else-if="callStatus === 'failed' || callStatus === 'disconnected' || callStatus === 'cancelled'">
-          <!-- Handled above with retry/close buttons or status message -->
-        </div>
-        <div v-else class="flex gap-2">
-          <Button
-            size="md"
-            variant="solid"
-            theme="green"
-            :label="__('Accept')"
-            class="rounded-6 text-ink-base"
-            :iconLeft="PhoneIcon"
-            @click="acceptIncomingCall"
-          />
-          <Button
-            size="md"
-            variant="solid"
-            theme="red"
-            :label="__('Reject')"
-            class="rounded-6 text-ink-base"
-            @click="rejectIncomingCall"
+            <svg v-if="!muted" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          </button>
+
+          <!-- Keypad Toggle -->
+          <button
+            type="button"
+            class="size-10 rounded-full flex items-center justify-center transition-colors"
+            :class="showKeypad ? 'bg-surface-gray-6 text-white' : 'bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-200'"
+            :title="__('Dialpad')"
+            @click="toggleKeypad"
           >
-            <template #prefix>
-              <PhoneIcon class="rotate-[135deg]" />
-            </template>
-          </Button>
+            <DialpadIcon class="h-4 w-4" />
+          </button>
+
+          <!-- Hold / Pause -->
+          <button
+            type="button"
+            class="size-10 rounded-full flex items-center justify-center transition-colors"
+            :class="isHeld ? 'bg-amber-950/80 text-amber-400 border border-amber-500/50' : 'bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-200'"
+            :title="isHeld ? __('Resume Call') : __('Hold Call')"
+            @click="toggleHold"
+          >
+            <PauseIcon class="h-4 w-4" />
+          </button>
+
+          <!-- Volume / Speaker -->
+          <button
+            type="button"
+            class="size-10 rounded-full flex items-center justify-center bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-200 transition-colors"
+            :title="__('Speaker')"
+            @click="toggleSpeaker"
+          >
+            <VolumnHighIcon class="h-4 w-4" />
+          </button>
+
+          <!-- Recording Indicator -->
+          <div
+            class="size-10 rounded-full flex items-center justify-center bg-surface-gray-8 text-red-500"
+            :title="__('Call is being recorded')"
+          >
+            <span class="size-3 rounded-full bg-red-500 animate-pulse" />
+          </div>
+        </div>
+
+        <!-- Right Call Actions -->
+        <div>
+          <!-- Connected: Red End Call Pill -->
+          <div v-if="onCall">
+            <button
+              type="button"
+              class="h-10 px-6 rounded-full bg-red-600 hover:bg-red-700 text-white font-medium text-sm flex items-center gap-2 shadow-lg transition-colors cursor-pointer"
+              @click="hangUpCall"
+            >
+              <PhoneIcon class="h-4 w-4 rotate-[135deg]" />
+              <span>{{ __('End Call') }}</span>
+            </button>
+          </div>
+
+          <!-- Initiating / Ringing: Cancel Button -->
+          <div v-else-if="calling || callStatus === 'initiating' || callStatus === 'ringing'">
+            <button
+              type="button"
+              class="h-10 px-5 rounded-full bg-red-600 hover:bg-red-700 text-white font-medium text-sm flex items-center gap-2 shadow-lg transition-colors cursor-pointer"
+              @click="cancelCall"
+            >
+              <PhoneIcon class="h-4 w-4 rotate-[135deg]" />
+              <span>{{ __('Cancel') }}</span>
+            </button>
+          </div>
+
+          <!-- Failed / Ended -->
+          <div v-else-if="callStatus === 'failed' || callStatus === 'disconnected' || callStatus === 'cancelled'">
+            <Button
+              size="md"
+              variant="subtle"
+              :label="__('Close')"
+              class="rounded-full text-ink-base"
+              @click="closeCallPopup"
+            />
+          </div>
+
+          <!-- Incoming: Accept / Reject Pills -->
+          <div v-else class="flex items-center gap-2.5">
+            <button
+              type="button"
+              class="h-10 px-6 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm flex items-center gap-2 shadow-lg transition-colors cursor-pointer"
+              @click="acceptIncomingCall"
+            >
+              <PhoneIcon class="h-4 w-4" />
+              <span>{{ __('Accept') }}</span>
+            </button>
+            <button
+              type="button"
+              class="h-10 px-6 rounded-full bg-red-600 hover:bg-red-700 text-white font-medium text-sm flex items-center gap-2 shadow-lg transition-colors cursor-pointer"
+              @click="rejectIncomingCall"
+            >
+              <PhoneIcon class="h-4 w-4 rotate-[135deg]" />
+              <span>{{ __('Reject') }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- Minimized Dock Widget (Bottom-Left Sidebar Card matching screenshot) -->
   <div
     v-show="showSmallCallWindow && !isDialPadRoute"
-    class="ml-2 flex cursor-pointer select-none items-center justify-between gap-3 rounded-6 bg-surface-gray-10 px-2 py-[7px] text-base text-ink-gray-2"
+    class="fixed bottom-4 left-4 z-50 flex flex-col gap-2 rounded-xl bg-[#18191e] p-3 shadow-2xl border border-surface-gray-7/80 w-64 select-none cursor-pointer transition-transform hover:scale-[1.01]"
     v-bind="$attrs"
     @click="toggleCallWindow"
   >
-    <div class="flex items-center gap-2">
-      <Avatar
-        v-if="contact?.image"
-        :image="contact.image"
-        :label="contact.full_name"
-        class="relative flex !h-5 !w-5 items-center justify-center"
-      />
-      <div class="max-w-[120px] truncate">
-        {{ contact?.full_name ?? __('Unknown') }}
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
+        <span class="text-xs font-semibold text-white uppercase tracking-wider">
+          {{ onCall ? __('On Call') : calling ? __('Calling...') : __('Call') }}
+        </span>
+      </div>
+      <div class="text-xs font-mono font-medium text-gray-300">
+        {{ counterUp?.updatedTime || '00:00' }}
       </div>
     </div>
-    <div v-if="onCall" class="flex items-center gap-2">
-      <div class="my-1 min-w-[40px] text-center">
-        {{ counterUp?.updatedTime }}
+    <div class="text-xs text-gray-400 truncate">
+      {{ contact?.full_name || phoneNumber || contact?.mobile_no }}
+    </div>
+    <div class="flex items-center justify-between pt-1" @click.stop>
+      <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          class="size-7 rounded-full flex items-center justify-center bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-300"
+          :class="{ 'bg-red-950 text-red-400': muted }"
+          @click="toggleMute"
+        >
+          <svg v-if="!muted" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          </svg>
+          <svg v-else class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="size-7 rounded-full flex items-center justify-center bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-300"
+          @click="toggleKeypad"
+        >
+          <DialpadIcon class="size-3.5" />
+        </button>
+        <button
+          type="button"
+          class="size-7 rounded-full flex items-center justify-center bg-surface-gray-8 hover:bg-surface-gray-7 text-gray-300"
+          :title="__('Restore Window')"
+          @click="toggleCallWindow"
+        >
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+          </svg>
+        </button>
       </div>
-      <Button
-        variant="solid"
-        theme="red"
-        class="!h-6 !w-6 rounded-full rotate-[135deg] text-ink-base"
-        :icon="PhoneIcon"
-        @click.stop="hangUpCall"
-      />
-    </div>
-    <div
-      v-else-if="calling || callStatus == 'initiating' || callStatus == 'ringing'"
-      class="flex items-center gap-3"
-    >
-      <div class="my-1">
-        {{ callStatus == 'ringing' ? __('Ringing...') : __('Calling...') }}
-      </div>
-      <Button
-        variant="solid"
-        theme="red"
-        class="!h-6 !w-6 rounded-full rotate-[135deg] text-ink-base"
-        :icon="PhoneIcon"
-        @click.stop="cancelCall"
-      />
-    </div>
-    <div v-else-if="callStatus === 'failed'" class="flex items-center gap-2">
-      <span class="text-xs text-surface-red-5 font-medium">{{ __('Call Failed') }}</span>
-      <Button
-        variant="outline"
-        size="sm"
-        class="!h-6 text-xs"
-        :label="__('Close')"
-        @click.stop="closeCallPopup"
-      />
-    </div>
-    <div v-else class="flex items-center gap-2">
-      <Button
-        variant="solid"
-        theme="green"
-        class="pulse relative !h-6 !w-6 rounded-full animate-pulse text-ink-base"
-        :tooltip="__('Accept Call')"
-        :icon="PhoneIcon"
-        @click.stop="acceptIncomingCall"
-      />
-      <Button
-        variant="solid"
-        theme="red"
-        class="!h-6 !w-6 rounded-full rotate-[135deg] text-ink-base"
-        :tooltip="__('Reject Call')"
-        :icon="PhoneIcon"
-        @click.stop="rejectIncomingCall"
-      />
+
+      <button
+        type="button"
+        class="h-7 px-3 rounded-full bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center gap-1.5 shadow"
+        @click="hangUpCall"
+      >
+        <PhoneIcon class="size-3 rotate-[135deg]" />
+        <span>{{ __('End Call') }}</span>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import NoteIcon from '@/components/Icons/NoteIcon.vue'
-import MinimizeIcon from '@/components/Icons/MinimizeIcon.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
+import PauseIcon from '@/components/Icons/PauseIcon.vue'
+import VolumnHighIcon from '@/components/Icons/VolumnHighIcon.vue'
 import CountUpTimer from '@/components/CountUpTimer.vue'
 import { Device } from '@twilio/voice-sdk'
 import { useDraggable, useWindowSize } from '@vueuse/core'
 import { useTelemetry } from '@framework/ui/telemetry'
 import { globalStore } from '@/stores/global'
+import { usersStore } from '@/stores/users'
+import { sessionStore } from '@/stores/session'
 import {
   formatTranscriptUtterances,
   appendOrUpdateUtterance,
+  formatSpeechTimestamp,
+  getSpeakerDisplayName,
 } from '@/utils/callTranscript'
 import {
   validateTokenResponse,
   mapTwilioSignalingStatus,
   extractCallErrorMessage,
 } from '@/utils/twilioCall'
-import { Avatar, call, createResource, toast } from 'frappe-ui'
+import { Avatar, Button, call, createResource, toast } from 'frappe-ui'
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { activeCallState, registerTelephonyHandlers } from '@/composables/useTelephonyCall'
+import {
+  activeCallState,
+  registerTelephonyHandlers,
+} from '@/composables/useTelephonyCall'
 
 const route = useRoute()
 const isDialPadRoute = computed(() => {
@@ -394,22 +624,33 @@ const isDialPadRoute = computed(() => {
 
 const { capture } = useTelemetry()
 const { $socket } = globalStore()
+const users = usersStore()
+const session = sessionStore()
+
+const currentUserName = computed(() => {
+  return users.getUser(session.user)?.full_name || session.user || 'Sam Walker'
+})
 
 let device = null
 let log = ref('Connecting...')
 let _call = null
 
-let showCallPopup = ref(false)
-let showSmallCallWindow = ref(false)
-let onCall = ref(false)
-let calling = ref(false)
-let muted = ref(false)
-let showKeypad = ref(false)
-let callPopup = ref(null)
-let counterUp = ref(null)
-let callStatus = ref('')
+const showCallPopup = ref(false)
+const showSmallCallWindow = ref(false)
+const isMaximized = ref(false)
+const onCall = ref(false)
+const calling = ref(false)
+const muted = ref(false)
+const isHeld = ref(false)
+const showKeypad = ref(false)
+const callPopup = ref(null)
+const dragHandle = ref(null)
+const counterUp = ref(null)
+const callStatus = ref('')
+const notesTextarea = ref(null)
+const transcriptFontSize = ref('sm') // 'xs' | 'sm' | 'base'
 
-const deviceStatus = ref('uninitialized') // 'uninitialized', 'initializing', 'registering', 'ready', 'error'
+const deviceStatus = ref('uninitialized')
 const deviceErrorMessage = ref('')
 const callErrorMessage = ref('')
 let isCallPendingConnect = false
@@ -417,12 +658,16 @@ let closeStatusTimer = null
 
 const activeCallSid = ref('')
 const utterances = ref([])
-const transcriptionStatus = ref('idle')
+const transcriptionStatus = ref('idle') // 'idle' | 'listening' | 'transcribing' | 'paused' | 'unavailable' | 'error'
+const transcriptionError = ref('')
 const transcriptContainer = ref(null)
 let transcriptSaved = false
 
-const keypadDigits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
+// Speech Recognition instance
+let speechRecognizer = null
+let speechRecognitionActive = false
 
+const keypadDigits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 const phoneNumber = ref('')
 
 const contact = ref({
@@ -449,16 +694,15 @@ const getContact = createResource({
   },
 })
 
-const showNotesPanel = ref(false)
+// Call Notes Auto-Save & Manual Save
 const isSavingNote = ref(false)
 const noteSavedNotice = ref(false)
+const saveFailedNotice = ref(false)
+const lastSavedTime = ref('')
 let notesDebounceTimer = null
 
-function toggleNotesPanel() {
-  showNotesPanel.value = !showNotesPanel.value
-}
-
 function handleNotesInput() {
+  activeCallState.saveStatus = 'saving'
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
   notesDebounceTimer = setTimeout(() => {
     persistCallNote(false)
@@ -476,6 +720,7 @@ async function persistCallNote(isExplicit = false) {
   }
 
   isSavingNote.value = true
+  saveFailedNotice.value = false
   try {
     const res = await call('crm.integrations.api.add_note_to_call_log', {
       call_sid: sid,
@@ -488,6 +733,11 @@ async function persistCallNote(isExplicit = false) {
     if (res?.name) {
       activeCallState.noteDocName = res.name
     }
+    const now = new Date()
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+    lastSavedTime.value = timeStr
+    activeCallState.lastSavedTime = timeStr
+    activeCallState.saveStatus = 'saved'
     noteSavedNotice.value = true
     setTimeout(() => {
       noteSavedNotice.value = false
@@ -498,6 +748,8 @@ async function persistCallNote(isExplicit = false) {
     capture('note_updated')
   } catch (err) {
     console.error('Failed to save in-call note:', err)
+    saveFailedNotice.value = true
+    activeCallState.saveStatus = 'failed'
     if (isExplicit) {
       toast.error(__('Failed to save note'))
     }
@@ -506,17 +758,189 @@ async function persistCallNote(isExplicit = false) {
   }
 }
 
-const { width, height } = useWindowSize()
+// Formatting toolbar helpers for Call Notes textarea
+function applyFormatting(type) {
+  const textarea = notesTextarea.value
+  if (!textarea) return
+  const start = textarea.selectionStart ?? 0
+  const end = textarea.selectionEnd ?? 0
+  const text = activeCallState.notes || ''
+  const selectedText = text.substring(start, end)
+  let replacement = ''
+  let newCursorPos = start
 
-let { style } = useDraggable(callPopup, {
-  initialValue: { x: width.value - 320, y: height.value - 380 },
-  preventDefault: true,
+  if (type === 'bold') {
+    replacement = selectedText ? `**${selectedText}**` : '**'
+    newCursorPos = selectedText ? start + replacement.length : start + 2
+  } else if (type === 'italic') {
+    replacement = selectedText ? `*${selectedText}*` : '*'
+    newCursorPos = selectedText ? start + replacement.length : start + 1
+  } else if (type === 'underline') {
+    replacement = selectedText ? `<u>${selectedText}</u>` : '<u></u>'
+    newCursorPos = selectedText ? start + replacement.length : start + 3
+  } else if (type === 'bullet') {
+    const lines = selectedText ? selectedText.split('\n') : ['']
+    replacement = lines.map((l) => (l.startsWith('• ') || l.startsWith('- ') ? l : `• ${l}`)).join('\n')
+    newCursorPos = start + replacement.length
+  } else if (type === 'numbered') {
+    const lines = selectedText ? selectedText.split('\n') : ['']
+    replacement = lines.map((l, i) => (l.match(/^\d+\.\s/) ? l : `${i + 1}. ${l}`)).join('\n')
+    newCursorPos = start + replacement.length
+  }
+
+  activeCallState.notes = text.substring(0, start) + replacement + text.substring(end)
+  handleNotesInput()
+
+  nextTick(() => {
+    textarea.focus()
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+  })
+}
+
+// Draggable positioning with handle & preventDefault=false
+const { width, height } = useWindowSize()
+const { style } = useDraggable(callPopup, {
+  handle: dragHandle,
+  initialValue: { x: Math.max(20, width.value - 820), y: Math.max(20, height.value - 600) },
+  preventDefault: false,
 })
 
+function toggleMaximize() {
+  isMaximized.value = !isMaximized.value
+  activeCallState.isMaximized = isMaximized.value
+}
+
+// Web Speech Recognition for Real Live Voice-to-Text
+function initSpeechRecognition() {
+  const SpeechRecognitionClass =
+    typeof window !== 'undefined'
+      ? window.SpeechRecognition || window.webkitSpeechRecognition
+      : null
+
+  if (!SpeechRecognitionClass) {
+    if (transcriptionStatus.value === 'idle') {
+      transcriptionStatus.value = 'unavailable'
+      activeCallState.transcriptionStatus = 'unavailable'
+      transcriptionError.value = __('Your browser does not support the Web Speech Recognition API.')
+    }
+    return
+  }
+
+  try {
+    speechRecognizer = new SpeechRecognitionClass()
+    speechRecognizer.continuous = true
+    speechRecognizer.interimResults = true
+    speechRecognizer.lang = navigator.language || 'en-US'
+
+    speechRecognizer.onstart = () => {
+      speechRecognitionActive = true
+      transcriptionStatus.value = 'listening'
+      activeCallState.transcriptionStatus = 'listening'
+      transcriptionError.value = ''
+    }
+
+    speechRecognizer.onresult = (event) => {
+      if (!onCall.value) return
+      let finalTranscript = ''
+      let interimTranscript = ''
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const item = event.results[i]
+        const text = item[0]?.transcript || ''
+        if (item.isFinal) {
+          finalTranscript += text
+        } else {
+          interimTranscript += text
+        }
+      }
+
+      const agentTimestamp = counterUp.value?.updatedTime || '00:00'
+
+      if (finalTranscript.trim()) {
+        transcriptionStatus.value = 'transcribing'
+        activeCallState.transcriptionStatus = 'transcribing'
+        utterances.value = appendOrUpdateUtterance(utterances.value, {
+          speaker: 'agent',
+          text: finalTranscript.trim(),
+          isFinal: true,
+          timestamp: agentTimestamp,
+        })
+        activeCallState.utterances = utterances.value
+        scrollToBottom()
+      } else if (interimTranscript.trim()) {
+        transcriptionStatus.value = 'transcribing'
+        activeCallState.transcriptionStatus = 'transcribing'
+        utterances.value = appendOrUpdateUtterance(utterances.value, {
+          speaker: 'agent',
+          text: interimTranscript.trim(),
+          isFinal: false,
+          timestamp: agentTimestamp,
+        })
+        activeCallState.utterances = utterances.value
+        scrollToBottom()
+      }
+    }
+
+    speechRecognizer.onerror = (event) => {
+      console.warn('Speech recognition event error:', event.error)
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        transcriptionStatus.value = 'unavailable'
+        activeCallState.transcriptionStatus = 'unavailable'
+        transcriptionError.value = __('Microphone access denied for live speech recognition.')
+      }
+    }
+
+    speechRecognizer.onend = () => {
+      speechRecognitionActive = false
+      if (onCall.value && !muted.value && transcriptionStatus.value !== 'unavailable') {
+        try {
+          speechRecognizer.start()
+        } catch (e) {
+          console.warn('Could not restart speech recognition:', e)
+        }
+      } else if (muted.value && onCall.value) {
+        transcriptionStatus.value = 'paused'
+        activeCallState.transcriptionStatus = 'paused'
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to construct SpeechRecognition:', err)
+    transcriptionStatus.value = 'unavailable'
+    activeCallState.transcriptionStatus = 'unavailable'
+    transcriptionError.value = err.message || __('Speech recognition initialization failed.')
+  }
+}
+
+function startSpeechRecognition() {
+  if (!speechRecognizer) {
+    initSpeechRecognition()
+  }
+  if (speechRecognizer && !speechRecognitionActive) {
+    try {
+      speechRecognizer.start()
+    } catch (e) {
+      console.warn('Speech recognition start failed:', e)
+    }
+  }
+}
+
+function stopSpeechRecognition() {
+  if (speechRecognizer && speechRecognitionActive) {
+    try {
+      speechRecognizer.stop()
+    } catch (e) {}
+    speechRecognitionActive = false
+  }
+  if (transcriptionStatus.value !== 'unavailable') {
+    transcriptionStatus.value = 'idle'
+    activeCallState.transcriptionStatus = 'idle'
+  }
+}
+
+// Twilio Live Transcription Socket Event Handler
 function handleLiveTranscriptEvent(data) {
   if (!data || !data.text) return
 
-  // Filter out if not for this call
   if (activeCallSid.value && data.call_sid && data.call_sid !== activeCallSid.value) {
     return
   }
@@ -525,13 +949,15 @@ function handleLiveTranscriptEvent(data) {
   }
 
   transcriptionStatus.value = 'listening'
+  activeCallState.transcriptionStatus = 'listening'
 
   utterances.value = appendOrUpdateUtterance(utterances.value, {
     speaker: data.speaker,
     text: data.text,
     isFinal: data.is_final,
-    timestamp: data.timestamp,
+    timestamp: data.timestamp || counterUp.value?.updatedTime || '00:00',
   })
+  activeCallState.utterances = utterances.value
 
   scrollToBottom()
 }
@@ -564,8 +990,11 @@ async function saveFinalTranscript() {
 
 function resetTranscriptState() {
   utterances.value = []
+  activeCallState.utterances = []
   activeCallSid.value = ''
   transcriptionStatus.value = 'idle'
+  activeCallState.transcriptionStatus = 'idle'
+  transcriptionError.value = ''
   transcriptSaved = false
 }
 
@@ -573,6 +1002,7 @@ function handleSocketMessage(data) {
   if (!data) return
   if (data.event === 'started') {
     transcriptionStatus.value = 'listening'
+    activeCallState.transcriptionStatus = 'listening'
     return
   }
   if (data.event === 'stopped') {
@@ -591,14 +1021,17 @@ function setupSocket() {
 
 onMounted(() => {
   setupSocket()
+  initSpeechRecognition()
 })
 
 onBeforeUnmount(() => {
+  stopSpeechRecognition()
   if ($socket) {
     $socket.off('twilio_transcription', handleSocketMessage)
   }
 })
 
+// Twilio Telephony Setup
 async function startupClient() {
   if (deviceStatus.value === 'initializing' || deviceStatus.value === 'registering') {
     return false
@@ -757,10 +1190,42 @@ function toggleMute() {
   if (_call.isMuted()) {
     _call.mute(false)
     muted.value = false
+    activeCallState.muted = false
+    if (onCall.value) {
+      startSpeechRecognition()
+    }
   } else {
-    _call.mute()
+    _call.mute(true)
     muted.value = true
+    activeCallState.muted = true
+    if (speechRecognizer && speechRecognitionActive) {
+      stopSpeechRecognition()
+      transcriptionStatus.value = 'paused'
+      activeCallState.transcriptionStatus = 'paused'
+    }
   }
+}
+
+function toggleHold() {
+  if (!_call) return
+  isHeld.value = !isHeld.value
+  if (isHeld.value) {
+    _call.mute(true)
+    if (speechRecognizer && speechRecognitionActive) {
+      stopSpeechRecognition()
+      transcriptionStatus.value = 'paused'
+      activeCallState.transcriptionStatus = 'paused'
+    }
+  } else if (!muted.value) {
+    _call.mute(false)
+    if (onCall.value) {
+      startSpeechRecognition()
+    }
+  }
+}
+
+function toggleSpeaker() {
+  toast.info(__('Speaker audio device active'))
 }
 
 function toggleKeypad() {
@@ -779,19 +1244,18 @@ function handleIncomingCall(call) {
   phoneNumber.value = call.parameters.From
 
   showCallPopup.value = true
+  showSmallCallWindow.value = false
   _call = call
   if (call.parameters?.CallSid) {
     activeCallSid.value = call.parameters.CallSid
   }
 
-  _call.on('accept', (conn) => {
-    console.log('conn', conn)
+  _call.on('accept', () => {
     if (_call?.parameters?.CallSid) {
       activeCallSid.value = _call.parameters.CallSid
     }
   })
 
-  // add event listener to call object
   call.on('cancel', handleDisconnectedIncomingCall)
   call.on('disconnect', handleDisconnectedIncomingCall)
   call.on('reject', handleDisconnectedIncomingCall)
@@ -806,6 +1270,7 @@ async function acceptIncomingCall() {
   }
   await _call.accept()
   counterUp.value?.start()
+  startSpeechRecognition()
 }
 
 function rejectIncomingCall() {
@@ -819,6 +1284,7 @@ function rejectIncomingCall() {
 }
 
 async function hangUpCall() {
+  stopSpeechRecognition()
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
   await persistCallNote(false)
   await saveFinalTranscript()
@@ -834,6 +1300,7 @@ async function hangUpCall() {
 }
 
 async function handleDisconnectedIncomingCall() {
+  stopSpeechRecognition()
   log.value = `Call ended from handle disconnected Incoming call.`
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
   await persistCallNote(false)
@@ -847,7 +1314,6 @@ async function makeOutgoingCall(number) {
     return
   }
 
-  // Prevent multiple simultaneous outgoing call attempts
   if (onCall.value || calling.value || callStatus.value === 'initiating' || isCallPendingConnect) {
     toast.warning(__('A call is already in progress.'))
     return
@@ -862,18 +1328,17 @@ async function makeOutgoingCall(number) {
   phoneNumber.value = number
   resetTranscriptState()
 
-  // Immediately display calling popup to give user feedback & control
   showCallPopup.value = true
   showSmallCallWindow.value = false
   callStatus.value = 'initiating'
   calling.value = true
   onCall.value = false
   muted.value = false
+  isHeld.value = false
   showKeypad.value = false
   callErrorMessage.value = ''
 
   try {
-    // 1. Ensure Device is ready
     if (!device || deviceStatus.value !== 'ready') {
       log.value = 'Twilio device not ready. Initializing...'
       const ok = await startupClient()
@@ -901,12 +1366,10 @@ async function makeOutgoingCall(number) {
       }
     }
 
-    // Check if user cancelled while device was preparing
     if (callStatus.value === 'cancelled' || !showCallPopup.value) {
       return
     }
 
-    // 2. Microphone permission validation
     if (navigator?.mediaDevices?.getUserMedia) {
       try {
         await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -921,12 +1384,10 @@ async function makeOutgoingCall(number) {
       }
     }
 
-    // Check if user cancelled while microphone prompt was active
     if (callStatus.value === 'cancelled' || !showCallPopup.value) {
       return
     }
 
-    // 3. Initiate Twilio connection
     log.value = `Attempting to call ${number} ...`
     callStatus.value = 'initiating'
 
@@ -944,7 +1405,6 @@ async function makeOutgoingCall(number) {
       activeCallSid.value = _call.parameters.CallSid
     }
 
-    // Check if user cancelled while connect was awaiting
     if (callStatus.value === 'cancelled' || !showCallPopup.value) {
       if (_call) {
         try {
@@ -972,7 +1432,6 @@ async function makeOutgoingCall(number) {
 function attachOutgoingCallListeners(callInstance) {
   if (!callInstance) return
 
-  // Ringing event from Voice SDK (when enableRingingState: true)
   callInstance.on('ringing', () => {
     log.value = 'Ringing...'
     if (!onCall.value) {
@@ -981,15 +1440,12 @@ function attachOutgoingCallListeners(callInstance) {
     }
   })
 
-  // Status message received from TwiML callback
   callInstance.on('messageReceived', (message) => {
     let info = message?.content
     if (typeof info === 'string') {
       try {
         info = JSON.parse(info)
-      } catch (e) {
-        // use raw string
-      }
+      } catch (e) {}
     }
     if (!info) return
 
@@ -1013,6 +1469,7 @@ function attachOutgoingCallListeners(callInstance) {
       calling.value = false
       onCall.value = true
       counterUp.value?.start()
+      startSpeechRecognition()
     } else if (
       signalingStatus === 'busy' ||
       signalingStatus === 'no-answer' ||
@@ -1046,6 +1503,7 @@ function attachOutgoingCallListeners(callInstance) {
     activeCallState.calling = false
     activeCallState.status = 'connected'
     counterUp.value?.start()
+    startSpeechRecognition()
   })
 
   callInstance.on('disconnect', () => {
@@ -1070,6 +1528,7 @@ function attachOutgoingCallListeners(callInstance) {
 
 async function handleCallDisconnected() {
   log.value = 'Call ended (disconnected).'
+  stopSpeechRecognition()
   if (notesDebounceTimer) clearTimeout(notesDebounceTimer)
   await persistCallNote(false)
   await saveFinalTranscript()
@@ -1081,6 +1540,7 @@ async function handleCallDisconnected() {
   activeCallState.onCall = false
   counterUp.value?.stop()
   muted.value = false
+  isHeld.value = false
   showKeypad.value = false
 
   if (closeStatusTimer) clearTimeout(closeStatusTimer)
@@ -1092,6 +1552,8 @@ async function handleCallDisconnected() {
 }
 
 function handleCallCancelled() {
+  log.value = 'Call cancelled'
+  stopSpeechRecognition()
   callStatus.value = 'cancelled'
   calling.value = false
   onCall.value = false
@@ -1100,6 +1562,7 @@ function handleCallCancelled() {
   activeCallState.onCall = false
   counterUp.value?.stop()
   muted.value = false
+  isHeld.value = false
   showKeypad.value = false
 
   if (closeStatusTimer) clearTimeout(closeStatusTimer)
@@ -1112,6 +1575,7 @@ function handleCallCancelled() {
 
 function cancelCall() {
   log.value = 'User clicked Cancel.'
+  stopSpeechRecognition()
   callStatus.value = 'cancelled'
   calling.value = false
   onCall.value = false
@@ -1142,6 +1606,7 @@ function retryCall() {
 }
 
 function closeCallPopup() {
+  stopSpeechRecognition()
   if (closeStatusTimer) {
     clearTimeout(closeStatusTimer)
     closeStatusTimer = null
@@ -1149,9 +1614,10 @@ function closeCallPopup() {
   showCallPopup.value = false
   showSmallCallWindow.value = false
   showKeypad.value = false
-  showNotesPanel.value = false
   isSavingNote.value = false
   noteSavedNotice.value = false
+  saveFailedNotice.value = false
+  isHeld.value = false
   if (notesDebounceTimer) {
     clearTimeout(notesDebounceTimer)
     notesDebounceTimer = null
@@ -1182,6 +1648,7 @@ function isCallInProgress() {
 function toggleCallWindow() {
   showCallPopup.value = !showCallPopup.value
   showSmallCallWindow.value = !showSmallCallWindow.value
+  activeCallState.isMinimized = showSmallCallWindow.value
 }
 
 watch(onCall, (value) => {
@@ -1189,14 +1656,6 @@ watch(onCall, (value) => {
     showKeypad.value = false
   }
 })
-
-watch(
-  () => log.value,
-  (value) => {
-    console.log(value)
-  },
-  { immediate: true },
-)
 
 // Sync internal telephony state to shared activeCallState
 watch(callStatus, (val) => {
@@ -1268,6 +1727,16 @@ onMounted(() => {
       activeCallState.notes = content
       handleNotesInput()
     },
+    openCallWindow: () => {
+      showCallPopup.value = true
+      showSmallCallWindow.value = false
+      activeCallState.isMinimized = false
+    },
+    minimizeCallWindow: () => {
+      showCallPopup.value = false
+      showSmallCallWindow.value = true
+      activeCallState.isMinimized = true
+    },
   })
 })
 
@@ -1282,45 +1751,6 @@ defineExpose({
   setup: startupClient,
   isCallInProgress,
   closeCallPopup,
+  toggleCallWindow,
 })
 </script>
-
-<style scoped>
-.pulse::before {
-  content: '';
-  position: absolute;
-  border: 1px solid green;
-  width: calc(100% + 20px);
-  height: calc(100% + 20px);
-  border-radius: 50%;
-  animation: pulse 1s linear infinite;
-}
-
-.pulse::after {
-  content: '';
-  position: absolute;
-  border: 1px solid green;
-  width: calc(100% + 20px);
-  height: calc(100% + 20px);
-  border-radius: 50%;
-  animation: pulse 1s linear infinite;
-  animation-delay: 0.3s;
-}
-
-@keyframes pulse {
-  0% {
-    transform: scale(0.5);
-    opacity: 0;
-  }
-
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-
-  100% {
-    transform: scale(1.3);
-    opacity: 0;
-  }
-}
-</style>

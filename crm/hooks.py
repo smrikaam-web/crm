@@ -259,11 +259,16 @@ if int(frappe.__version__.split(".")[0]) < 16:
 
 doc_events = {
 	"Contact": {
+		"before_insert": ["crm.api.contact.prevent_auto_contact_from_email_sync"],
 		"validate": ["crm.api.contact.validate"],
 		"on_trash": [
 			"crm.api.security.guard_contact_delete",
 			"crm.overrides.contact.contact_on_trash",
 		],
+	},
+	"Email Account": {
+		"before_insert": ["crm.api.security.enforce_email_account_settings"],
+		"validate": ["crm.api.security.enforce_email_account_settings"],
 	},
 	"CRM Organization": {
 		"on_trash": [

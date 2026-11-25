@@ -10,9 +10,9 @@
       />
       <Button
         variant="solid"
-        :label="__('Create')"
-        iconLeft="lucide-plus"
-        @click="showImportTypeModal = true"
+        :label="__('Import')"
+        iconLeft="lucide-upload"
+        @click="showBulkImportModal = true"
       />
     </template>
   </LayoutHeader>
@@ -62,17 +62,10 @@
       !!Object.keys({ ...queryFilters, ...dataImports.params?.filters }).length
     "
     :description="__('Imports you start from a list appear here.')"
+    :onCreate="() => (showBulkImportModal = true)"
   />
 
-  <!-- Import Modals -->
-  <ImportTypeModal
-    v-model="showImportTypeModal"
-    @select="onImportTypeSelect"
-  />
-  <SingleImportModal
-    v-model="showSingleImportModal"
-    @success="onImportSuccess"
-  />
+  <!-- Bulk Import Modal -->
   <BulkImportModal
     v-model="showBulkImportModal"
     @imported="onImportSuccess"
@@ -86,31 +79,31 @@ import LayoutHeader from '@/components/LayoutHeader.vue'
 import ViewControls from '@/components/ViewControls.vue'
 import DataImportsListView from '@/components/ListViews/DataImportsListView.vue'
 import EmptyState from '@/components/ListViews/EmptyState.vue'
-import ImportTypeModal from '@/components/Import/ImportTypeModal.vue'
-import SingleImportModal from '@/components/Import/SingleImportModal.vue'
 import BulkImportModal from '@/components/Import/BulkImportModal.vue'
 import {
   getDataImportRow,
   type DataImportList,
   type ListColumn,
 } from '@/utils/dataImport'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
 
-const showImportTypeModal = ref(false)
-const showSingleImportModal = ref(false)
-const showBulkImportModal = ref(false)
+// Open bulk import directly when the page opens (unless reviewing a specific filtered import query)
+const showBulkImportModal = ref(!route.query.doctype && !route.query.status)
 
-function onImportTypeSelect(type: string) {
-  if (type === 'single') {
-    showSingleImportModal.value = true
-  } else if (type === 'bulk') {
-    showBulkImportModal.value = true
-  }
-}
+watch(
+  () => route.path,
+  (newPath) => {
+    if (newPath === '/data-import' || newPath.startsWith('/data-import/view')) {
+      if (!route.query.doctype && !route.query.status) {
+        showBulkImportModal.value = true
+      }
+    }
+  },
+)
 
 function onImportSuccess() {
   viewControls.value?.reload?.()

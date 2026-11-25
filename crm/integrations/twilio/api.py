@@ -695,10 +695,25 @@ def transcription_callback(**kwargs):
 @frappe.whitelist()
 def save_call_transcript(call_sid: str, transcript: str):
 	"""Save complete formatted transcript to CRM Call Log upon call completion."""
-	if not frappe.has_permission("CRM Call Log", "write", call_sid):
+	call_log = None
+	if frappe.db.exists("CRM Call Log", call_sid):
+		call_log = frappe.get_doc("CRM Call Log", call_sid)
+	else:
+		name_by_id = frappe.db.get_value("CRM Call Log", {"id": call_sid}, "name")
+		if name_by_id:
+			call_log = frappe.get_doc("CRM Call Log", name_by_id)
+		else:
+			try:
+				call_log = find_call_log(call_sid)
+			except Exception:
+				pass
+
+	if not call_log:
+		return {"status": "not_found"}
+
+	if not frappe.has_permission("CRM Call Log", "write", call_log):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	call_log = frappe.get_doc("CRM Call Log", call_sid)
 	if transcript and transcript.strip():
 		call_log.transcript = transcript.strip()
 		call_log.save(ignore_permissions=True)
@@ -709,6 +724,17 @@ def save_call_transcript(call_sid: str, transcript: str):
 @frappe.whitelist()
 def get_call_transcript(call_sid: str):
 	"""Retrieve call transcript for a given call sid."""
-	if not frappe.has_permission("CRM Call Log", "read", call_sid):
+	call_log = None
+	if frappe.db.exists("CRM Call Log", call_sid):
+		call_log = frappe.get_doc("CRM Call Log", call_sid)
+	else:
+		name_by_id = frappe.db.get_value("CRM Call Log", {"id": call_sid}, "name")
+		if name_by_id:
+			call_log = frappe.get_doc("CRM Call Log", name_by_id)
+
+	if not call_log:
+		return None
+
+	if not frappe.has_permission("CRM Call Log", "read", call_log):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	return frappe.db.get_value("CRM Call Log", call_sid, "transcript")
+	return call_log.transcript

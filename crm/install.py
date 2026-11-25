@@ -278,6 +278,16 @@ def add_property_setter():
 		doc.value = "email_id"
 		doc.insert()
 
+	if not frappe.db.exists("Property Setter", {"name": "Email Account-create_contact-default"}):
+		doc = frappe.new_doc("Property Setter")
+		doc.doctype_or_field = "DocField"
+		doc.doc_type = "Email Account"
+		doc.field_name = "create_contact"
+		doc.property = "default"
+		doc.property_type = "Check"
+		doc.value = "0"
+		doc.insert()
+
 
 def add_email_template_custom_fields():
 	meta = frappe.get_meta("Email Template")
