@@ -83,62 +83,124 @@
             />
           </SidebarItem>
 
-          <!-- Grouped Collapsible Sections: Data, Outreach, Sales Pipeline -->
-          <div
-            v-for="section in groupedSections"
-            :key="section.name"
-            class="flex flex-col"
-          >
-            <SidebarLabel
-              divider
-              class="mb-1 mt-4 select-none"
-              :class="!isCollapsed && 'cursor-pointer'"
-              @click="toggleSection(section.name)"
+            <!-- Grouped Collapsible Sections: Data, Outreach, Sales Pipeline -->
+            <div
+              v-for="section in groupedSections"
+              :key="section.name"
+              class="flex flex-col"
             >
-              <span class="flex items-center gap-1.5">
-                <span
-                  class="lucide-chevron-down -ml-0.5 size-4 shrink-0 text-ink-gray-9 transition-transform duration-300 ease-in-out"
-                  :class="{ 'rotate-180': isSectionOpened(section.name) }"
-                  aria-hidden="true"
-                />
-                <span class="truncate">{{ __(section.name) }}</span>
-              </span>
-            </SidebarLabel>
-            <transition
-              enter-active-class="duration-300 ease-in"
-              leave-active-class="duration-300 ease-[cubic-bezier(0, 1, 0.5, 1)]"
-              enter-to-class="max-h-[300px] overflow-hidden"
-              leave-from-class="max-h-[300px] overflow-hidden"
-              enter-from-class="max-h-0 overflow-hidden"
-              leave-to-class="max-h-0 overflow-hidden"
-            >
-              <nav
-                v-show="isSectionOpened(section.name)"
-                class="flex flex-col gap-1"
+              <SidebarLabel
+                divider
+                class="mb-1 mt-4 select-none"
+                :class="!isCollapsed && 'cursor-pointer'"
+                @click="toggleSection(section.name)"
               >
-                <SidebarItem
-                  v-for="link in section.views"
-                  :key="link.key"
-                  :route="link.to"
-                  :label="__(link.label)"
-                  :active="activeItem === link.key"
-                  @click="selectItem($event, link.key)"
+                <span class="flex items-center gap-1.5">
+                  <span
+                    class="lucide-chevron-down -ml-0.5 size-4 shrink-0 text-ink-gray-9 transition-transform duration-300 ease-in-out"
+                    :class="{ 'rotate-180': isSectionOpened(section.name) }"
+                    aria-hidden="true"
+                  />
+                  <span class="truncate">{{ __(section.name) }}</span>
+                </span>
+              </SidebarLabel>
+              <transition
+                enter-active-class="duration-300 ease-in"
+                leave-active-class="duration-300 ease-[cubic-bezier(0, 1, 0.5, 1)]"
+                enter-to-class="max-h-[300px] overflow-hidden"
+                leave-from-class="max-h-[300px] overflow-hidden"
+                enter-from-class="max-h-0 overflow-hidden"
+                leave-to-class="max-h-0 overflow-hidden"
+              >
+                <nav
+                  v-show="isSectionOpened(section.name)"
+                  class="flex flex-col gap-1"
                 >
-                  <template #prefix>
-                    <Icon :icon="link.icon" class="size-4 text-ink-gray-7" />
+                  <template v-for="link in section.views" :key="link.key">
+                    <!-- Submenu Item (e.g. Calling with Dial Pad & Call Logs) -->
+                    <template v-if="link.children">
+                      <SidebarItem
+                        :label="__(link.label)"
+                        class="cursor-pointer select-none"
+                        @click="toggleCallingSubmenu"
+                      >
+                        <template #prefix>
+                          <Icon :icon="link.icon" class="size-4 text-ink-gray-7" />
+                        </template>
+                        <span class="flex-1 truncate text-sm leading-tighter">
+                          {{ __(link.label) }}
+                        </span>
+                        <template #suffix>
+                          <span
+                            v-if="!isCollapsed"
+                            class="lucide-chevron-down mr-1 size-3.5 shrink-0 text-ink-gray-6 transition-transform duration-200"
+                            :class="{ 'rotate-180': isCallingOpened }"
+                            aria-hidden="true"
+                          />
+                        </template>
+                      </SidebarItem>
+                      <!-- Submenu Children: Dial Pad and Call Logs -->
+                      <transition
+                        enter-active-class="duration-200 ease-in"
+                        leave-active-class="duration-200 ease-out"
+                        enter-to-class="max-h-[150px] opacity-100"
+                        leave-from-class="max-h-[150px] opacity-100"
+                        enter-from-class="max-h-0 opacity-0 overflow-hidden"
+                        leave-to-class="max-h-0 opacity-0 overflow-hidden"
+                      >
+                        <div
+                          v-show="isCallingOpened || isCollapsed"
+                          class="flex flex-col gap-1 overflow-hidden"
+                          :class="!isCollapsed && 'pl-3'"
+                        >
+                          <SidebarItem
+                            v-for="sublink in link.children"
+                            :key="sublink.key"
+                            :route="sublink.to"
+                            :label="__(sublink.label)"
+                            :active="activeItem === sublink.key"
+                            @click="selectItem($event, sublink.key)"
+                          >
+                            <template #prefix>
+                              <Icon :icon="sublink.icon" class="size-4 text-ink-gray-7" />
+                            </template>
+                            <Tooltip
+                              :text="__(sublink.label)"
+                              side="right"
+                              :hoverDelay="1500"
+                              :disabled="isCollapsed"
+                            >
+                              <span class="truncate text-sm">{{ __(sublink.label) }}</span>
+                            </Tooltip>
+                          </SidebarItem>
+                        </div>
+                      </transition>
+                    </template>
+                    <!-- Normal Sidebar Item -->
+                    <template v-else>
+                      <SidebarItem
+                        :route="link.to"
+                        :label="__(link.label)"
+                        :active="activeItem === link.key"
+                        @click="selectItem($event, link.key)"
+                      >
+                        <template #prefix>
+                          <Icon :icon="link.icon" class="size-4 text-ink-gray-7" />
+                        </template>
+                        <Tooltip
+                          :text="__(link.label)"
+                          side="right"
+                          :hoverDelay="1500"
+                          :disabled="isCollapsed"
+                        >
+                          <span class="truncate text-sm">{{ __(link.label) }}</span>
+                        </Tooltip>
+                      </SidebarItem>
+                    </template>
                   </template>
-                  <Tooltip
-                    :text="__(link.label)"
-                    side="right"
-                    :hoverDelay="1500"
-                    :disabled="isCollapsed"
-                  >
-                    <span class="truncate text-sm">{{ __(link.label) }}</span>
-                  </Tooltip>
-                </SidebarItem>
-              </nav>
-            </transition>
-          </div>
+                </nav>
+              </transition>
+            </div>
 
           <!-- Custom / Public / Pinned Views -->
           <CollapsibleSection
@@ -282,6 +344,7 @@ import NoteIcon from '@/components/Icons/NoteIcon.vue'
 import OrganizationsIcon from '@/components/Icons/OrganizationsIcon.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import TaskIcon from '@/components/Icons/TaskIcon.vue'
+import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
 import FileSpreadsheetIcon from '@/components/Icons/FileSpreadsheetIcon.vue'
 import CalendarIcon from '@/components/Icons/CalendarIcon.vue'
 import LucideLayoutDashboard from '~icons/lucide/layout-dashboard'
@@ -359,6 +422,17 @@ const sectionStates = useStorage(
   sessionStorage,
 )
 
+const isCallingOpened = useStorage(
+  'crm_sidebar_calling_opened',
+  true,
+  sessionStorage,
+)
+
+function toggleCallingSubmenu() {
+  if (isCollapsed.value) return
+  isCallingOpened.value = !isCallingOpened.value
+}
+
 function isSectionOpened(name) {
   if (sectionStates.value && typeof sectionStates.value[name] === 'boolean') {
     return sectionStates.value[name]
@@ -415,16 +489,29 @@ const groupedSections = computed(() => [
         to: { name: 'Tasks' },
       },
       {
-        label: 'Call Logs',
-        icon: PhoneIcon,
-        key: 'Call Logs',
-        to: { name: 'Call Logs' },
-      },
-      {
         label: 'Booking Hub',
         icon: CalendarIcon,
         key: 'Booking Hub',
         to: { name: 'Booking Hub' },
+      },
+      {
+        label: 'Calling',
+        icon: PhoneIcon,
+        key: 'Calling',
+        children: [
+          {
+            label: 'Dial Pad',
+            icon: DialpadIcon,
+            key: 'DialPad',
+            to: { name: 'DialPad' },
+          },
+          {
+            label: 'Call Logs',
+            icon: PhoneIcon,
+            key: 'Call Logs',
+            to: { name: 'Call Logs' },
+          },
+        ],
       },
     ],
   },
@@ -500,6 +587,9 @@ function getIcon(routeName, icon) {
       return PhoneIcon
     case 'Booking Hub':
       return CalendarIcon
+    case 'DialPad':
+    case 'Dial Pad':
+      return DialpadIcon
     case 'Tasks':
     case 'My Task':
       return TaskIcon
@@ -548,12 +638,16 @@ function ensureActiveSectionOpened() {
     }
   }
 
-  const outreachKeys = ['Tasks', 'Call Logs', 'Booking Hub']
+  const outreachKeys = ['Tasks', 'Call Logs', 'Booking Hub', 'DialPad', 'Calling']
   if (outreachKeys.includes(name) || outreachKeys.includes(currentKey)) {
     sectionStates.value = {
       ...sectionStates.value,
       Outreach: true,
     }
+  }
+
+  if (['DialPad', 'Call Logs'].includes(name) || ['DialPad', 'Call Logs'].includes(currentKey)) {
+    isCallingOpened.value = true
   }
 
   const salesKeys = ['Leads', 'Lead', 'Deals', 'Deal']

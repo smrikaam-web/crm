@@ -119,292 +119,319 @@
             :key="item.activity_type + item.name"
             class="rounded-lg border border-outline-gray-2 bg-surface-white p-4 shadow-xs hover:border-outline-gray-3 transition-colors"
           >
-            <!-- Email Activity Card -->
-            <div v-if="item.activity_type === 'email'" class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
+            <!-- Email Activity Card: Compact 2-line layout -->
+            <div v-if="item.activity_type === 'email'" class="flex flex-col">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
                   <span
-                    class="flex size-7 items-center justify-center rounded-full"
-                    :class="item.sent_or_received === 'Received' ? 'bg-surface-purple-2 text-ink-purple-4' : 'bg-surface-blue-2 text-ink-blue-4'"
+                    class="flex size-7 shrink-0 items-center justify-center rounded-full"
+                    :class="item.sent_or_received === 'Received' ? 'bg-purple-50 text-purple-600 border border-purple-200' : 'bg-blue-50 text-blue-600 border border-blue-200'"
                   >
-                    <EmailIcon class="size-4" />
+                    <EmailIcon class="size-3.5" />
                   </span>
-                  <div class="text-sm font-semibold text-ink-gray-9">
+                  <span class="truncate text-[13px] font-semibold text-ink-gray-9 dark:text-ink-white">
                     {{ item.activity_title }}
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
+                  </span>
                   <Badge
                     v-if="item.sent_or_received === 'Received'"
                     variant="subtle"
                     theme="purple"
+                    size="sm"
                   >
                     {{ __('Incoming') }}
                   </Badge>
-                  <div class="text-xs text-ink-gray-5">
-                    {{ formatActivityDate(item.date) }}
-                  </div>
+                </div>
+                <div class="text-xs text-ink-gray-5 whitespace-nowrap shrink-0">
+                  {{ formatActivityDate(item.date) }}
                 </div>
               </div>
 
-              <div class="pl-9.5 flex flex-col gap-1.5">
-                <div class="text-sm font-medium text-ink-gray-8">
-                  {{ item.subject }}
+              <!-- Line 2: Subject & View Details toggle -->
+              <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
+                <div class="truncate text-ink-gray-7 dark:text-ink-gray-3 font-normal">
+                  {{ item.subject || item.snippet || __('(No Subject)') }}
                 </div>
-                <div class="text-xs text-ink-gray-5 flex items-center gap-3">
-                  <span><span class="font-medium text-ink-gray-7">From:</span> {{ item.sender }}</span>
-                  <span><span class="font-medium text-ink-gray-7">To:</span> {{ item.recipients }}</span>
-                </div>
-                <div class="text-xs text-ink-gray-6 line-clamp-2">
-                  {{ item.snippet }}
-                </div>
+                <button
+                  type="button"
+                  class="text-[11px] font-medium text-ink-blue-4 hover:underline shrink-0 inline-flex items-center gap-1"
+                  @click="toggleEmailExpand(item.name)"
+                >
+                  <span>{{ expandedEmails[item.name] ? __('Less') : __('View Details') }}</span>
+                  <span :class="expandedEmails[item.name] ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-3" />
+                </button>
+              </div>
 
-                <!-- Expanded Email Content -->
-                <div v-if="expandedEmails[item.name]" class="mt-3 rounded-md bg-surface-gray-1 p-3 text-xs space-y-2 border border-outline-gray-2">
-                  <div class="flex items-center justify-between border-b pb-2">
-                    <span class="font-medium text-ink-gray-8">{{ __('Full Email Content') }}</span>
-                    <Badge variant="subtle" :theme="getDeliveryStatusTheme(item.delivery_status)">{{ item.delivery_status }}</Badge>
-                  </div>
-                  <div v-if="item.cc" class="text-ink-gray-6">
-                    <span class="font-medium">CC:</span> {{ item.cc }}
-                  </div>
-                  <div v-if="item.bcc" class="text-ink-gray-6">
-                    <span class="font-medium">BCC:</span> {{ item.bcc }}
-                  </div>
-                  <!-- eslint-disable vue/no-v-html -->
-                  <div
-                    class="prose prose-xs max-w-none text-ink-gray-8"
-                    v-html="sanitizeHTML(item.content || getEmailContent(item.name))"
-                  />
-                  <!-- eslint-enable vue/no-v-html -->
-                  <div v-if="item.attachments && item.attachments.length" class="mt-2 border-t pt-2">
-                    <div class="font-medium text-ink-gray-7 mb-1">{{ __('Attachments:') }}</div>
-                    <div class="flex flex-wrap gap-2">
-                      <a
-                        v-for="att in item.attachments"
-                        :key="att.name"
-                        :href="att.file_url"
-                        target="_blank"
-                        class="inline-flex items-center gap-1 rounded bg-surface-gray-2 px-2 py-1 text-ink-blue-4 hover:underline"
-                      >
-                        <span class="lucide-paperclip size-3" />
-                        <span>{{ att.file_name }}</span>
-                      </a>
-                    </div>
-                  </div>
+              <!-- Expanded Email Content -->
+              <div v-if="expandedEmails[item.name]" class="mt-3 ml-9.5 rounded-md bg-surface-gray-1 p-3 text-xs space-y-2 border border-outline-gray-2 dark:bg-surface-gray-7 dark:border-outline-gray-6">
+                <div class="flex items-center justify-between border-b pb-2 dark:border-outline-gray-6">
+                  <span class="font-medium text-ink-gray-8 dark:text-ink-gray-2">{{ __('Full Email Content') }}</span>
+                  <Badge variant="subtle" :theme="getDeliveryStatusTheme(item.delivery_status)">{{ item.delivery_status }}</Badge>
                 </div>
-
-                <div>
-                  <button
-                    type="button"
-                    class="text-xs font-medium text-ink-blue-4 hover:underline inline-flex items-center gap-1"
-                    @click="toggleEmailExpand(item.name)"
-                  >
-                    <span>{{ expandedEmails[item.name] ? __('Hide email content') : __('View complete email') }}</span>
-                    <span :class="expandedEmails[item.name] ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-3" />
-                  </button>
+                <div class="flex items-center gap-3 text-ink-gray-5">
+                  <span><span class="font-medium text-ink-gray-7 dark:text-ink-gray-2">From:</span> {{ item.sender }}</span>
+                  <span><span class="font-medium text-ink-gray-7 dark:text-ink-gray-2">To:</span> {{ item.recipients }}</span>
+                </div>
+                <div v-if="item.cc" class="text-ink-gray-6">
+                  <span class="font-medium">CC:</span> {{ item.cc }}
+                </div>
+                <div v-if="item.bcc" class="text-ink-gray-6">
+                  <span class="font-medium">BCC:</span> {{ item.bcc }}
+                </div>
+                <!-- eslint-disable vue/no-v-html -->
+                <div
+                  class="prose prose-xs max-w-none text-ink-gray-8 dark:text-ink-gray-2"
+                  v-html="sanitizeHTML(item.content || getEmailContent(item.name))"
+                />
+                <!-- eslint-enable vue/no-v-html -->
+                <div v-if="item.attachments && item.attachments.length" class="mt-2 border-t pt-2 dark:border-outline-gray-6">
+                  <div class="font-medium text-ink-gray-7 dark:text-ink-gray-3 mb-1">{{ __('Attachments:') }}</div>
+                  <div class="flex flex-wrap gap-2">
+                    <a
+                      v-for="att in item.attachments"
+                      :key="att.name"
+                      :href="att.file_url"
+                      target="_blank"
+                      class="inline-flex items-center gap-1 rounded bg-surface-gray-2 px-2 py-1 text-ink-blue-4 hover:underline"
+                    >
+                      <span class="lucide-paperclip size-3" />
+                      <span>{{ att.file_name }}</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Call Activity Card -->
+            <!-- Call Activity Card: Compact 2-line layout -->
             <div
               v-else-if="item.activity_type === 'call'"
-              class="flex flex-col gap-2 rounded-lg border border-outline-gray-2 bg-surface-white p-3.5 shadow-xs transition-colors hover:border-outline-gray-3"
+              class="flex flex-col"
             >
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
                   <span
-                    class="flex size-7 items-center justify-center rounded-full"
-                    :class="item.status === 'No Answer' ? 'bg-surface-red-2 text-ink-red-4' : 'bg-surface-green-2 text-ink-green-4'"
+                    class="flex size-7 shrink-0 items-center justify-center rounded-full"
+                    :class="item.status === 'No Answer' ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'"
                   >
-                    <PhoneIcon class="size-4" />
+                    <PhoneIcon class="size-3.5" />
                   </span>
-                  <div class="text-sm font-semibold text-ink-gray-9">
+                  <span class="truncate text-[13px] font-semibold text-ink-gray-9 dark:text-ink-white">
                     {{ item.activity_title }}
-                  </div>
+                  </span>
+                  <Badge
+                    variant="subtle"
+                    size="sm"
+                    :theme="item.status === 'Completed' ? 'green' : item.status === 'No Answer' ? 'red' : 'gray'"
+                  >
+                    {{ item.status }}
+                  </Badge>
                 </div>
-                <div class="flex items-center gap-2">
-                  <div class="text-xs text-ink-gray-5">
+                <div class="flex items-center gap-2 shrink-0">
+                  <div class="text-xs text-ink-gray-5 whitespace-nowrap">
                     {{ formatActivityDate(item.date) }}
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    class="!h-6 !px-2 text-xs text-ink-gray-7 hover:bg-surface-gray-2"
+                    class="!h-5 !px-1.5 text-xs text-ink-gray-6 hover:bg-surface-gray-2"
                     :label="__('Details')"
                     @click="openCallLogDetail(item.name)"
                   />
                 </div>
               </div>
 
-              <div class="pl-9.5 flex flex-col gap-2">
-                <div class="flex flex-wrap items-center gap-2">
-                  <Badge variant="subtle" theme="gray">{{ item.type }} Call</Badge>
-                  <Badge variant="subtle" theme="blue">
-                    <template #prefix><span class="lucide-user size-3 mr-1" /></template>
-                    {{ item.user_name }}
-                  </Badge>
-                  <Badge variant="subtle" theme="gray">
-                    <template #prefix><span class="lucide-phone size-3 mr-1" /></template>
-                    {{ item.phone }}
-                  </Badge>
-                  <Badge variant="subtle" theme="gray">
-                    <template #prefix><span class="lucide-clock size-3 mr-1" /></template>
-                    {{ __('Duration:') }} {{ item.duration_formatted }}
-                  </Badge>
-                  <Badge
-                    variant="solid"
-                    :theme="item.status === 'Completed' ? 'green' : item.status === 'No Answer' ? 'red' : 'gray'"
-                  >
-                    {{ item.status }}
-                  </Badge>
+              <!-- Line 2: Call summary & Details toggle -->
+              <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
+                <div class="truncate text-ink-gray-7 dark:text-ink-gray-3">
+                  <span>{{ item.type }} Call</span>
+                  <span v-if="item.duration_formatted" class="text-ink-gray-4"> • </span>
+                  <span v-if="item.duration_formatted">{{ item.duration_formatted }}</span>
+                  <span v-if="item.phone" class="text-ink-gray-4"> • </span>
+                  <span v-if="item.phone">{{ item.phone }}</span>
+                  <span v-if="item.note" class="text-ink-gray-4"> • </span>
+                  <span v-if="item.note" class="italic">{{ stripHTML(item.note) }}</span>
                 </div>
+                <button
+                  v-if="item.note || item.recording_url"
+                  type="button"
+                  class="text-[11px] font-medium text-ink-blue-4 hover:underline shrink-0"
+                  @click="toggleActivityExpand('call' + item.name)"
+                >
+                  {{ expandedActivities['call' + item.name] ? __('Less') : __('View Details') }}
+                </button>
+              </div>
 
-                <div v-if="item.note" class="rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-7 border border-outline-gray-2">
-                  <span class="font-medium text-ink-gray-8">{{ __('Call Notes:') }} </span>
+              <!-- Expanded Call Details -->
+              <div v-if="expandedActivities['call' + item.name]" class="mt-2.5 ml-9.5 rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-8 border border-outline-gray-2 space-y-2 dark:bg-surface-gray-7 dark:border-outline-gray-6">
+                <div v-if="item.note">
+                  <span class="font-medium text-ink-gray-7 dark:text-ink-gray-2">{{ __('Notes:') }} </span>
                   <!-- eslint-disable vue/no-v-html -->
                   <span v-html="sanitizeHTML(item.note)" />
                   <!-- eslint-enable vue/no-v-html -->
                 </div>
-
-                <div v-if="item.recording_url" class="mt-1">
+                <div v-if="item.recording_url">
                   <AudioPlayer :src="item.recording_url" />
-                </div>
-                <div v-else-if="item.recording_status === 'processing'" class="mt-1 flex items-center gap-1.5 text-xs text-ink-gray-5 italic">
-                  <span class="lucide-loader-2 size-3 animate-spin" />
-                  <span>{{ __('Recording Processing...') }}</span>
                 </div>
               </div>
             </div>
 
-            <!-- Note Activity Card -->
-            <div v-else-if="item.activity_type === 'note'" class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                  <span class="flex size-7 items-center justify-center rounded-full bg-surface-amber-2 text-ink-amber-5">
-                    <NoteIcon class="size-4" />
+            <!-- Note Activity Card: Compact 2-line layout -->
+            <div v-else-if="item.activity_type === 'note'" class="flex flex-col">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                    <NoteIcon class="size-3.5" />
                   </span>
-                  <div class="text-sm font-semibold text-ink-gray-9">
+                  <span class="truncate text-[13px] font-semibold text-ink-gray-9 dark:text-ink-white">
                     {{ item.activity_title }}
-                  </div>
-                  <span v-if="item.pinned" class="lucide-pin size-3.5 text-ink-amber-5" title="Pinned" />
+                  </span>
+                  <span v-if="item.pinned" class="lucide-pin size-3 text-amber-500" title="Pinned" />
                 </div>
-                <div class="text-xs text-ink-gray-5">
+                <div class="text-xs text-ink-gray-5 whitespace-nowrap shrink-0">
                   {{ formatActivityDate(item.date) }}
                 </div>
               </div>
 
-              <div class="pl-9.5 flex flex-col gap-1.5">
-                <div v-if="item.title && item.title !== 'Note'" class="text-sm font-medium text-ink-gray-8">
-                  {{ item.title }}
+              <!-- Line 2: Note Summary & toggle -->
+              <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
+                <div class="truncate text-ink-gray-7 dark:text-ink-gray-3">
+                  {{ item.title || stripHTML(item.content) }}
                 </div>
+                <button
+                  v-if="item.content"
+                  type="button"
+                  class="text-[11px] font-medium text-ink-blue-4 hover:underline shrink-0"
+                  @click="toggleActivityExpand('note' + item.name)"
+                >
+                  {{ expandedActivities['note' + item.name] ? __('Less') : __('View Details') }}
+                </button>
+              </div>
+
+              <div
+                v-if="expandedActivities['note' + item.name] && item.content"
+                class="mt-2.5 ml-9.5 rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-8 border border-outline-gray-2 dark:bg-surface-gray-7 dark:border-outline-gray-6"
+              >
                 <!-- eslint-disable vue/no-v-html -->
-                <div
-                  class="prose prose-xs max-w-none text-ink-gray-7 rounded-md bg-surface-gray-1 p-3 border border-outline-gray-2"
-                  v-html="sanitizeHTML(item.content)"
-                />
+                <div class="prose prose-xs max-w-none dark:text-ink-gray-2" v-html="sanitizeHTML(item.content)" />
                 <!-- eslint-enable vue/no-v-html -->
               </div>
             </div>
 
-            <!-- Meeting Activity Card -->
-            <div v-else-if="item.activity_type === 'meeting'" class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                  <span class="flex size-7 items-center justify-center rounded-full bg-surface-purple-2 text-ink-purple-4">
-                    <CalendarIcon class="size-4" />
+            <!-- Meeting Activity Card: Compact 2-line layout -->
+            <div v-else-if="item.activity_type === 'meeting'" class="flex flex-col">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-600 border border-purple-200">
+                    <CalendarIcon class="size-3.5" />
                   </span>
-                  <div class="text-sm font-semibold text-ink-gray-9">
+                  <span class="truncate text-[13px] font-semibold text-ink-gray-9 dark:text-ink-white">
                     {{ item.activity_title }}
-                  </div>
-                </div>
-                <div class="text-xs text-ink-gray-5">
-                  {{ formatActivityDate(item.date) }}
-                </div>
-              </div>
-
-              <div class="pl-9.5 flex flex-col gap-2">
-                <div class="text-sm font-medium text-ink-gray-9">
-                  {{ item.title }}
-                </div>
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge variant="subtle" theme="purple">
-                    <template #prefix><span class="lucide-calendar size-3 mr-1" /></template>
-                    {{ item.date }}
-                  </Badge>
-                  <Badge variant="subtle" theme="gray">
-                    <template #prefix><span class="lucide-clock size-3 mr-1" /></template>
-                    {{ formatTimeRange(item.starts_on, item.ends_on) }}
-                  </Badge>
-                  <Badge variant="subtle" theme="blue">
-                    <template #prefix><span class="lucide-user size-3 mr-1" /></template>
-                    {{ __('Organizer:') }} {{ item.organizer_name }}
-                  </Badge>
+                  </span>
                   <Badge
                     variant="solid"
+                    size="sm"
                     :theme="item.status === 'Open' ? 'blue' : item.status === 'Completed' ? 'green' : 'gray'"
                   >
                     {{ item.status }}
                   </Badge>
                 </div>
+                <div class="text-xs text-ink-gray-5 whitespace-nowrap shrink-0">
+                  {{ formatActivityDate(item.date) }}
+                </div>
+              </div>
 
-                <div v-if="item.participants && item.participants.length" class="text-xs text-ink-gray-6">
-                  <span class="font-medium text-ink-gray-7">{{ __('Participants:') }}</span>
+              <!-- Line 2: Meeting details -->
+              <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
+                <div class="truncate text-ink-gray-7 dark:text-ink-gray-3">
+                  <span>{{ item.title }}</span>
+                  <span v-if="item.starts_on" class="text-ink-gray-4"> • </span>
+                  <span v-if="item.starts_on">{{ formatTimeRange(item.starts_on, item.ends_on) }}</span>
+                  <span v-if="item.organizer_name" class="text-ink-gray-4"> • </span>
+                  <span v-if="item.organizer_name">Organizer: {{ item.organizer_name }}</span>
+                </div>
+                <button
+                  v-if="item.description || (item.participants && item.participants.length)"
+                  type="button"
+                  class="text-[11px] font-medium text-ink-blue-4 hover:underline shrink-0"
+                  @click="toggleActivityExpand('meeting' + item.name)"
+                >
+                  {{ expandedActivities['meeting' + item.name] ? __('Less') : __('View Details') }}
+                </button>
+              </div>
+
+              <div
+                v-if="expandedActivities['meeting' + item.name]"
+                class="mt-2.5 ml-9.5 rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-8 border border-outline-gray-2 space-y-1.5 dark:bg-surface-gray-7 dark:border-outline-gray-6"
+              >
+                <div v-if="item.participants && item.participants.length" class="text-ink-gray-6">
+                  <span class="font-medium text-ink-gray-7 dark:text-ink-gray-2">{{ __('Participants:') }}</span>
                   {{ item.participants.join(', ') }}
                 </div>
-
-                <div v-if="item.description" class="rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-7 border border-outline-gray-2">
-                  <span class="font-medium text-ink-gray-8">{{ __('Notes:') }} </span>
+                <div v-if="item.description" class="prose prose-xs max-w-none dark:text-ink-gray-2">
                   <!-- eslint-disable vue/no-v-html -->
-                  <span v-html="sanitizeHTML(item.description)" />
+                  <div v-html="sanitizeHTML(item.description)" />
                   <!-- eslint-enable vue/no-v-html -->
                 </div>
               </div>
             </div>
 
-            <!-- Status Update Activity Card -->
-            <div v-else-if="item.activity_type === 'status_update'" class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                  <span class="flex size-7 items-center justify-center rounded-full bg-surface-teal-2 text-ink-teal-4">
+            <!-- Status Update Activity Card: Compact 2-line layout matching reference image -->
+            <div v-else-if="item.activity_type === 'status_update'" class="flex flex-col">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#eaf8ee] text-[#1b7a37] border border-[#c6efd0]">
                     <CheckCircleIcon class="size-4" />
                   </span>
-                  <div class="text-sm font-semibold text-ink-gray-9">
+                  <span class="truncate text-[13px] font-semibold text-ink-gray-9 dark:text-ink-white">
                     {{ item.activity_title }}
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  <Badge variant="solid" size="sm" :class="getMainStatusBadgeClass(item.main_status)">
+                  </span>
+                  <span
+                    v-if="item.main_status"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eaf8ee] text-[#1b7a37] border border-[#c6efd0]"
+                  >
                     {{ item.main_status }}
-                  </Badge>
-                  <div class="text-xs text-ink-gray-5">
-                    {{ formatActivityDate(item.date || item.creation) }}
-                  </div>
+                  </span>
+                </div>
+                <div class="text-xs text-ink-gray-5 whitespace-nowrap shrink-0">
+                  {{ formatActivityDate(item.date || item.creation) }}
                 </div>
               </div>
 
-              <div class="pl-9.5 flex flex-col gap-1.5">
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge v-if="item.activity_status" variant="outline" size="sm" class="bg-surface-gray-2 text-ink-gray-8 border-outline-gray-3">
-                    {{ item.activity_status }}
-                  </Badge>
-                  <span v-if="item.connected_to" class="text-ink-gray-5">
-                    {{ item.connected_to }}
-                  </span>
-                  <span v-if="item.next_action" class="rounded px-1.5 py-0.5 bg-surface-gray-2 text-ink-gray-7 border border-outline-gray-2">
-                    {{ __('Next:') }} {{ item.next_action }}
-                  </span>
-                  <span v-if="item.follow_up_date" class="text-ink-gray-6 font-medium">
-                    {{ __('Follow-up:') }} {{ item.follow_up_date }}
-                  </span>
-                  <span v-if="item.call_back_date" class="text-ink-gray-6 font-medium">
-                    {{ __('Call on:') }} {{ item.call_back_date }}
-                  </span>
+              <!-- Line 2: Details summary -->
+              <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
+                <div class="truncate text-ink-gray-7 dark:text-ink-gray-3">
+                  <span>{{ item.activity_status || item.main_status }}</span>
+                  <template v-if="item.next_action">
+                    <span class="text-ink-gray-4"> • </span>
+                    <span>Next: {{ item.next_action }}</span>
+                  </template>
+                  <template v-if="item.follow_up_date">
+                    <span class="text-ink-gray-4"> • </span>
+                    <span>Follow-up: {{ item.follow_up_date }}</span>
+                  </template>
+                  <template v-if="item.call_back_date">
+                    <span class="text-ink-gray-4"> • </span>
+                    <span>Call on: {{ item.call_back_date }}</span>
+                  </template>
+                  <template v-if="item.connected_to">
+                    <span class="text-ink-gray-4"> • </span>
+                    <span>{{ item.connected_to }}</span>
+                  </template>
                 </div>
-                <div class="text-xs text-ink-gray-8 whitespace-pre-wrap rounded-md bg-surface-gray-1 p-2.5 border border-outline-gray-2 leading-relaxed">
-                  {{ item.description }}
-                </div>
+                <button
+                  v-if="item.description"
+                  type="button"
+                  class="text-[11px] font-medium text-ink-blue-4 hover:underline shrink-0"
+                  @click="toggleActivityExpand('status_update' + item.name)"
+                >
+                  {{ expandedActivities['status_update' + item.name] ? __('Less') : __('View Details') }}
+                </button>
+              </div>
+
+              <div
+                v-if="expandedActivities['status_update' + item.name] && item.description"
+                class="mt-2.5 ml-9.5 rounded-md bg-surface-gray-1 p-2.5 text-xs text-ink-gray-8 border border-outline-gray-2 whitespace-pre-wrap dark:bg-surface-gray-7 dark:border-outline-gray-6"
+              >
+                {{ item.description }}
               </div>
             </div>
           </div>
@@ -1257,7 +1284,17 @@ const emit = defineEmits(['newDeal', 'taskStatusUpdated'])
 
 const activeTab = ref('all_activity')
 const expandedEmails = reactive({})
+const expandedActivities = reactive({})
 const actionLoading = ref(false)
+
+function toggleActivityExpand(key) {
+  expandedActivities[key] = !expandedActivities[key]
+}
+
+function stripHTML(html) {
+  if (!html) return ''
+  return html.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim()
+}
 
 // Modals visibility
 const showCallModal = ref(false)

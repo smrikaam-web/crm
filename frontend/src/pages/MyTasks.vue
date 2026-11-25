@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full flex-col overflow-y-auto bg-surface-white dark:bg-surface-gray-9">
     <!-- Header -->
-    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-outline-gray-2 px-6 py-3.5 dark:border-outline-gray-7">
+    <header class="relative z-30 flex flex-wrap items-center justify-between gap-3 border-b border-outline-gray-2 px-6 py-3.5 dark:border-outline-gray-7">
       <div class="flex items-center gap-3">
         <div class="flex size-8 items-center justify-center rounded bg-surface-gray-2 text-ink-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-3">
           <TaskIcon class="size-4.5" />
@@ -16,88 +16,195 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <!-- Admin-only User Switcher -->
-        <div v-if="isAdmin" class="flex items-center gap-1.5 rounded border border-outline-gray-2 bg-surface-base px-2.5 py-1 text-xs dark:border-outline-gray-7">
-          <span class="font-medium text-ink-gray-5">{{ __('User:') }}</span>
-          <select
-            v-model="selectedUser"
-            class="bg-transparent text-xs font-semibold text-ink-gray-9 focus:outline-none dark:text-ink-white"
-            @change="fetchTasks"
+      <div class="flex flex-wrap items-center gap-2.5">
+        <!-- 1. All Users Dropdown Button (Matching Reference Image) -->
+        <Dropdown v-if="isAdmin" :options="userDropdownOptions">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs font-semibold text-ink-gray-8 shadow-2xs hover:bg-surface-gray-2 dark:border-outline-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-2"
           >
-            <option value="all">{{ __('All Users') }}</option>
-            <option
-              v-for="u in assignableUsers"
-              :key="u.name"
-              :value="u.name"
+            <LucideUsers class="size-3.5 text-ink-gray-5" />
+            <span>{{ selectedUserLabel }}</span>
+            <span class="lucide-chevron-down size-3 text-ink-gray-4" />
+          </button>
+        </Dropdown>
+        <div
+          v-else
+          class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs font-semibold text-ink-gray-8 shadow-2xs dark:border-outline-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-2"
+        >
+          <LucideUser class="size-3.5 text-ink-gray-5" />
+          <span>{{ currentUserName || __('My Tasks') }}</span>
+        </div>
+
+        <!-- 2. Filter Button with 6-category flyout submenu -->
+        <div ref="filterDropdownContainerRef" class="relative z-50">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-lg border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs font-semibold text-ink-gray-8 shadow-2xs transition-colors hover:bg-surface-gray-2 dark:border-outline-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-2"
+            :class="totalActiveFiltersCount > 0 ? 'border-primary-500 text-primary-600 bg-primary-50/50 dark:bg-primary-950/20' : ''"
+            @click="showFilterMenu = !showFilterMenu"
+          >
+            <LucideFilter class="size-3.5" :class="totalActiveFiltersCount > 0 ? 'text-primary-600' : 'text-ink-gray-5'" />
+            <span>{{ __('Filter') }}</span>
+            <Badge
+              v-if="totalActiveFiltersCount > 0"
+              variant="solid"
+              size="sm"
+              class="h-4 min-w-[16px] px-1 text-[10px]"
             >
-              {{ u.full_name }} ({{ u.email }})
-            </option>
-          </select>
-        </div>
+              {{ totalActiveFiltersCount }}
+            </Badge>
+            <span class="lucide-chevron-down size-3 text-ink-gray-4" />
+          </button>
 
-        <!-- Standalone Dial Pad Button -->
-        <Button
-          variant="subtle"
-          :icon="DialpadIcon"
-          :tooltip="__('Open Dial Pad')"
-          class="!size-7 p-1 text-ink-gray-7 hover:text-ink-gray-9 hover:bg-surface-gray-2 dark:text-ink-gray-3"
-          @click="openStandaloneDialpad"
-        />
-
-        <!-- Date Filter Toggle -->
-        <div class="flex items-center gap-1 rounded border border-outline-gray-2 bg-surface-base px-2 py-1 text-xs dark:border-outline-gray-7">
-          <span class="font-medium text-ink-gray-5">{{ __('Date:') }}</span>
-          <select
-            v-model="dateFilterMode"
-            class="bg-transparent text-xs font-semibold text-ink-gray-9 focus:outline-none dark:text-ink-white"
-            @change="handleDateModeChange"
+          <!-- 6-Category Unified Dropdown Panel (Completely solid, zero overlap, high z-index) -->
+          <div
+            v-if="showFilterMenu"
+            class="absolute right-0 top-full z-[100] mt-2 flex flex-col w-[480px] max-w-[calc(100vw-32px)] rounded-xl border border-outline-gray-3 !bg-white shadow-2xl dark:border-outline-gray-6 dark:!bg-[#1e293b] overflow-hidden"
+            @click.stop
           >
-            <option value="all">{{ __('All Dates') }}</option>
-            <option value="today">{{ __('Today') }} ({{ todayStr }})</option>
-            <option value="custom">{{ __('Specific Date') }}</option>
-          </select>
-          <input
-            v-if="dateFilterMode === 'custom'"
-            v-model="customDate"
-            type="date"
-            class="ml-1 bg-transparent text-xs text-ink-gray-9 focus:outline-none dark:text-ink-white"
-            @change="fetchTasks"
-          />
+            <!-- Dropdown Header -->
+            <div class="flex items-center justify-between px-3.5 py-2.5 border-b border-outline-gray-2 dark:border-outline-gray-7 !bg-[#f1f5f9] dark:!bg-[#0f172a]">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-ink-gray-9 dark:text-ink-white">
+                <LucideFilter class="size-3.5 text-ink-gray-5" />
+                <span>{{ __('Filter Tasks') }}</span>
+                <Badge v-if="totalActiveFiltersCount > 0" variant="solid" size="sm" class="ml-1">
+                  {{ totalActiveFiltersCount }} {{ __('active') }}
+                </Badge>
+              </div>
+              <button
+                v-if="totalActiveFiltersCount > 0"
+                type="button"
+                class="text-[11px] font-semibold text-surface-red-5 hover:underline cursor-pointer"
+                @click="clearAllFilters"
+              >
+                {{ __('Clear All') }}
+              </button>
+            </div>
+
+            <!-- Two-Column Side-by-Side Body -->
+            <div class="flex flex-row min-h-[280px] max-h-[380px] !bg-white dark:!bg-[#1e293b]">
+              <!-- Left Pane: 6 Categories -->
+              <div class="w-44 shrink-0 border-r border-outline-gray-2 dark:border-outline-gray-7 py-1.5 overflow-y-auto !bg-[#f8fafc] dark:!bg-[#0f172a]">
+                <button
+                  v-for="cat in filterCategories"
+                  :key="cat.key"
+                  type="button"
+                  class="w-full group flex items-center justify-between px-3 py-2 text-xs text-left transition-colors cursor-pointer"
+                  :class="activeFilterCategory === cat.key ? '!bg-white dark:!bg-[#1e293b] font-bold text-ink-gray-9 dark:text-ink-white shadow-xs' : 'text-ink-gray-7 hover:!bg-slate-200/70 dark:text-ink-gray-3 dark:hover:!bg-slate-800'"
+                  @click="activeFilterCategory = cat.key"
+                  @mouseenter="activeFilterCategory = cat.key"
+                >
+                  <div class="flex items-center gap-2 truncate">
+                    <component :is="cat.icon" class="size-3.5 text-ink-gray-5 shrink-0" />
+                    <span class="truncate">{{ __(cat.label) }}</span>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <span
+                      v-if="activeFilters[cat.key]?.size > 0"
+                      class="size-1.5 rounded-full bg-primary-500"
+                    />
+                    <LucideChevronRight class="size-3 text-ink-gray-4 group-hover:text-ink-gray-7" />
+                  </div>
+                </button>
+              </div>
+
+              <!-- Right Pane: Filter Options for Active Category -->
+              <div class="flex-1 min-w-0 p-3 flex flex-col overflow-hidden !bg-white dark:!bg-[#1e293b]">
+                <!-- Active Category Header -->
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-outline-gray-2 dark:border-outline-gray-7">
+                  <span class="text-xs font-bold uppercase tracking-wider text-ink-gray-6 dark:text-ink-gray-3">
+                    {{ getActiveCategoryLabel() }}
+                  </span>
+                  <span class="text-[11px] text-ink-gray-4">
+                    {{ getActiveCategoryOptions().length }} {{ __('options') }}
+                  </span>
+                </div>
+
+                <!-- Scrollable Options List -->
+                <div class="flex-1 overflow-y-auto space-y-1 pr-1 max-h-[290px] min-h-[190px]">
+                  <div
+                    v-if="getActiveCategoryOptions().length === 0"
+                    class="py-8 text-center text-xs text-ink-gray-4 italic"
+                  >
+                    {{ __('No filter values available for this category.') }}
+                  </div>
+
+                  <label
+                    v-for="opt in getActiveCategoryOptions()"
+                    :key="opt.value"
+                    class="flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors hover:!bg-slate-100 dark:hover:!bg-slate-700/60 select-none !bg-white dark:!bg-[#1e293b]"
+                  >
+                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                      <input
+                        type="checkbox"
+                        :checked="activeFilters[activeFilterCategory]?.has(opt.value)"
+                        class="size-3.5 rounded border-outline-gray-3 text-ink-primary focus:ring-0 shrink-0 cursor-pointer"
+                        @change="toggleFilterValue(activeFilterCategory, opt.value)"
+                      />
+                      <span class="truncate text-ink-gray-8 dark:text-ink-gray-2" :title="opt.label">
+                        {{ opt.label }}
+                      </span>
+                    </div>
+                    <span v-if="opt.count !== undefined" class="text-[10px] text-ink-gray-4 font-mono shrink-0">
+                      {{ opt.count }}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dropdown Footer -->
+            <div class="flex items-center justify-between px-3.5 py-2 border-t border-outline-gray-2 dark:border-outline-gray-7 !bg-[#f8fafc] dark:!bg-[#0f172a] text-xs">
+              <span class="text-ink-gray-5 text-[11px]">
+                {{ totalActiveFiltersCount > 0 ? __('{0} filters selected', [totalActiveFiltersCount]) : __('No filters applied') }}
+              </span>
+              <button
+                type="button"
+                class="rounded-md bg-surface-gray-9 px-3 py-1 font-semibold text-surface-white hover:bg-black dark:bg-surface-white dark:text-ink-gray-9 text-xs cursor-pointer"
+                @click="showFilterMenu = false"
+              >
+                {{ __('Done') }}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <Button
-          variant="subtle"
-          iconLeft="lucide-rotate-cw"
-          :loading="loading"
-          @click="fetchTasks"
-        />
+        <!-- 3. Export Button -->
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-lg border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-xs font-semibold text-ink-gray-8 shadow-2xs transition-colors hover:bg-surface-gray-2 dark:border-outline-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-2"
+          @click="exportTasksToCSV"
+        >
+          <LucideDownload class="size-3.5 text-ink-gray-5" />
+          <span>{{ __('Export') }}</span>
+        </button>
       </div>
     </header>
 
     <!-- Main Content -->
     <div class="flex-1 space-y-4 p-4 sm:p-5">
-      <!-- Status Tabs Bar (Compact horizontal layout) -->
-      <div class="rounded border border-outline-gray-2 bg-surface-base px-3 py-2 shadow-xs dark:border-outline-gray-7">
+      <!-- Status Tabs Bar (Compact horizontal layout matching reference) -->
+      <div class="rounded-xl border border-outline-gray-2 bg-surface-base px-3 py-2 shadow-xs dark:border-outline-gray-7">
         <div class="flex items-center gap-2 overflow-x-auto">
           <button
             v-for="st in statusPills"
             :key="st.value"
             type="button"
-            class="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-all whitespace-nowrap focus:outline-none"
+            class="flex items-center gap-2 rounded-md px-3.5 py-1.5 text-xs transition-all whitespace-nowrap focus:outline-none"
             :class="[
               currentStatus === st.value
-                ? 'bg-surface-gray-9 text-surface-white font-semibold shadow-xs dark:bg-surface-white dark:text-ink-gray-9'
+                ? 'bg-[#18202f] text-white font-semibold shadow-xs dark:bg-surface-white dark:text-ink-gray-9'
                 : 'text-ink-gray-7 hover:bg-surface-gray-2 hover:text-ink-gray-9 dark:text-ink-gray-3 dark:hover:bg-surface-gray-8 dark:hover:text-ink-white',
             ]"
             @click="currentStatus = st.value"
           >
             <span>{{ st.label }}</span>
             <span
-              class="rounded-full px-1.5 py-0.5 text-[11px] font-semibold leading-none"
+              class="rounded-full px-2 py-0.5 text-[11px] font-bold leading-none"
               :class="[
                 currentStatus === st.value
-                  ? 'bg-surface-white/20 text-surface-white dark:bg-surface-gray-8 dark:text-ink-gray-9'
+                  ? 'bg-white/20 text-white dark:bg-surface-gray-8 dark:text-ink-gray-9'
                   : 'bg-surface-gray-2 text-ink-gray-7 dark:bg-surface-gray-8 dark:text-ink-gray-3',
               ]"
             >
@@ -165,15 +272,16 @@
                     @change="toggleSelectAll"
                   />
                 </th>
-                <th class="w-[16%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Name') }}</th>
-                <th class="w-[10%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Designation') }}</th>
-                <th class="w-[15%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Email') }}</th>
-                <th class="w-[9.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Phone') }}</th>
-                <th class="w-[6.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Country') }}</th>
-                <th class="w-[9%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Timezone') }}</th>
-                <th class="w-[6%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Data Age') }}</th>
-                <th class="w-[7.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Last Updated') }}</th>
-                <th class="w-[9.5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Assigned By') }}</th>
+                <th class="w-[15%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Name') }}</th>
+                <th class="w-[9%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Designation') }}</th>
+                <th class="w-[13%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Email') }}</th>
+                <th class="w-[9%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Phone') }}</th>
+                <th class="w-[6%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Country') }}</th>
+                <th class="w-[8%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Timezone') }}</th>
+                <th class="w-[5%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Data Age') }}</th>
+                <th class="w-[7%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Last Updated') }}</th>
+                <th class="w-[8%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Assigned By') }}</th>
+                <th class="w-[8%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px]">{{ __('Assigned To') }}</th>
                 <th class="w-[8%] px-2 py-1.5 font-semibold uppercase tracking-wider text-[10px] text-right shrink-0">{{ __('Actions') }}</th>
               </tr>
             </thead>
@@ -197,7 +305,7 @@
                 </td>
 
                 <!-- 1. Name & Organization underneath -->
-                <td class="w-[16%] px-2 py-1.5">
+                <td class="w-[15%] px-2 py-1.5">
                   <div class="flex flex-col min-w-0">
                     <router-link
                       :to="{
@@ -222,58 +330,65 @@
                 </td>
 
                 <!-- 2. Designation -->
-                <td class="w-[10%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                <td class="w-[9%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
                   <div class="truncate text-[11px] leading-tight" :title="task.designation || ''">
                     {{ task.designation || '—' }}
                   </div>
                 </td>
 
                 <!-- 3. Email -->
-                <td class="w-[15%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3">
+                <td class="w-[13%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3">
                   <div class="truncate text-[11px] leading-tight" :title="task.email || ''">
                     {{ task.email || '—' }}
                   </div>
                 </td>
 
                 <!-- 4. Phone -->
-                <td class="w-[9.5%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[9%] px-2 py-1.5 text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <div class="truncate text-[11px] leading-tight" :title="task.mobile_no || ''">
                     {{ task.mobile_no || '—' }}
                   </div>
                 </td>
 
                 <!-- 5. Country -->
-                <td class="w-[6.5%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                <td class="w-[6%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
                   <div class="truncate text-[11px] leading-tight" :title="task._displayCountry || ''">
                     {{ task._displayCountry || '—' }}
                   </div>
                 </td>
 
                 <!-- 6. Timezone -->
-                <td class="w-[9%] px-2 py-1.5 font-mono text-[10.5px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[8%] px-2 py-1.5 font-mono text-[10.5px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <div class="truncate" :title="task._displayTimezone || ''">
                     {{ task._displayTimezone || '—' }}
                   </div>
                 </td>
 
                 <!-- 7. Data Age -->
-                <td class="w-[6%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[5%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <div class="truncate" :title="task._formattedCreation || ''">
                     {{ task._dataAge || '—' }}
                   </div>
                 </td>
 
                 <!-- 8. Last Updated -->
-                <td class="w-[7.5%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
+                <td class="w-[7%] px-2 py-1.5 text-[11px] leading-tight text-ink-gray-7 dark:text-ink-gray-3 whitespace-nowrap">
                   <div class="truncate" :title="task._formattedModified || ''">
                     {{ task._timeAgo || '—' }}
                   </div>
                 </td>
 
                 <!-- 9. Assigned By -->
-                <td class="w-[9.5%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                <td class="w-[8%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
                   <div class="truncate text-[11px] leading-tight" :title="task.allocated_by_name || task.allocated_by || ''">
                     {{ task.allocated_by_name || task.allocated_by || '—' }}
+                  </div>
+                </td>
+
+                <!-- 10. Assigned To -->
+                <td class="w-[8%] px-2 py-1.5 text-ink-gray-8 dark:text-ink-gray-2">
+                  <div class="truncate text-[11px] leading-tight" :title="task.assigned_to_name || task.assigned_to || ''">
+                    {{ task.assigned_to_name || task.assigned_to || '—' }}
                   </div>
                 </td>
 
@@ -313,7 +428,7 @@
 
               <!-- Empty Row -->
               <tr v-if="!filteredTasks.length">
-                <td :colspan="11" class="px-5 py-12 text-center text-ink-gray-5">
+                <td :colspan="12" class="px-5 py-12 text-center text-ink-gray-5">
                   <div class="flex flex-col items-center justify-center gap-2">
                     <TaskIcon class="size-8 text-ink-gray-4" />
                     <p class="font-medium">{{ __('No tasks match your filter criteria.') }}</p>
@@ -772,6 +887,16 @@ import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import BulkEmailModal from '@/components/Modals/BulkEmailModal.vue'
 import VisualEmailEditor from '@/components/VisualEmailEditor.vue'
+import LucideUsers from '~icons/lucide/users'
+import LucideUser from '~icons/lucide/user'
+import LucideFilter from '~icons/lucide/filter'
+import LucideDownload from '~icons/lucide/download'
+import LucideBriefcase from '~icons/lucide/briefcase'
+import LucideGlobe from '~icons/lucide/globe'
+import LucideClock from '~icons/lucide/clock'
+import LucideCalendar from '~icons/lucide/calendar'
+import LucideDatabase from '~icons/lucide/database'
+import LucideChevronRight from '~icons/lucide/chevron-right'
 
 const router = useRouter()
 const { $dialog, $socket, makeCall } = globalStore()
@@ -831,6 +956,211 @@ function toggleTaskSelection(name, checked) {
   selectedTaskSet.value = newSet
 }
 const headerCheckboxRef = ref(null)
+
+// Flyout Filter & Top Header Dropdowns State
+const showFilterMenu = ref(false)
+const activeFilterCategory = ref('designation')
+const filterDropdownContainerRef = ref(null)
+
+const activeFilters = reactive({
+  designation: new Set(),
+  country: new Set(),
+  timezone: new Set(),
+  assigned_by: new Set(),
+  last_updated: new Set(),
+  data_age: new Set(),
+})
+
+const filterCategories = [
+  { key: 'designation', label: 'Designation', icon: LucideBriefcase },
+  { key: 'country', label: 'Country', icon: LucideGlobe },
+  { key: 'timezone', label: 'Timezone', icon: LucideClock },
+  { key: 'assigned_by', label: 'Assigned by', icon: LucideUser },
+  { key: 'last_updated', label: 'Last updated', icon: LucideCalendar },
+  { key: 'data_age', label: 'Data age', icon: LucideDatabase },
+]
+
+function getActiveCategoryLabel() {
+  const cat = filterCategories.find((c) => c.key === activeFilterCategory.value)
+  return cat ? cat.label : ''
+}
+
+function getDateBucket(dateStr) {
+  if (!dateStr) return 'Older'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return 'Older'
+  const diffDays = Math.floor((new Date() - d) / (1000 * 60 * 60 * 24))
+  if (diffDays <= 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays <= 3) return '2-3 days ago'
+  if (diffDays <= 7) return '4-7 days ago'
+  return 'Over 7 days ago'
+}
+
+function getActiveCategoryOptions() {
+  const all = tasks.value || []
+  const counts = {}
+
+  if (activeFilterCategory.value === 'designation') {
+    all.forEach((t) => {
+      const val = (t.designation || '').trim()
+      if (val) counts[val] = (counts[val] || 0) + 1
+    })
+  } else if (activeFilterCategory.value === 'country') {
+    all.forEach((t) => {
+      const val = (t.country || '').trim()
+      if (val) counts[val] = (counts[val] || 0) + 1
+    })
+  } else if (activeFilterCategory.value === 'timezone') {
+    all.forEach((t) => {
+      const val = (t.timezone || '').trim()
+      if (val) counts[val] = (counts[val] || 0) + 1
+    })
+  } else if (activeFilterCategory.value === 'assigned_by') {
+    all.forEach((t) => {
+      const val = (t.assigned_by || t.allocated_by || '').trim()
+      if (val) counts[val] = (counts[val] || 0) + 1
+    })
+  } else if (activeFilterCategory.value === 'last_updated') {
+    all.forEach((t) => {
+      const bucket = getDateBucket(t.modified)
+      counts[bucket] = (counts[bucket] || 0) + 1
+    })
+  } else if (activeFilterCategory.value === 'data_age') {
+    all.forEach((t) => {
+      const bucket = getDateBucket(t.data_age_date || t.modified)
+      counts[bucket] = (counts[bucket] || 0) + 1
+    })
+  }
+
+  return Object.keys(counts)
+    .sort()
+    .map((k) => ({
+      label: k,
+      value: k,
+      count: counts[k],
+    }))
+}
+
+function toggleFilterValue(category, val) {
+  const set = activeFilters[category]
+  if (!set) return
+  if (set.has(val)) {
+    set.delete(val)
+  } else {
+    set.add(val)
+  }
+}
+
+function clearAllFilters() {
+  activeFilters.designation.clear()
+  activeFilters.country.clear()
+  activeFilters.timezone.clear()
+  activeFilters.assigned_by.clear()
+  activeFilters.last_updated.clear()
+  activeFilters.data_age.clear()
+}
+
+const totalActiveFiltersCount = computed(() => {
+  return (
+    activeFilters.designation.size +
+    activeFilters.country.size +
+    activeFilters.timezone.size +
+    activeFilters.assigned_by.size +
+    activeFilters.last_updated.size +
+    activeFilters.data_age.size
+  )
+})
+
+const currentUserName = computed(() => {
+  return window.frappe?.session?.user_fullname || window.frappe?.session?.user || 'My Tasks'
+})
+
+const selectedUserLabel = computed(() => {
+  if (selectedUser.value === 'all') return 'All Users'
+  const u = assignableUsers.value.find((usr) => usr.name === selectedUser.value)
+  return u ? (u.full_name || u.email) : selectedUser.value
+})
+
+const userDropdownOptions = computed(() => {
+  const opts = [
+    {
+      label: 'All Users',
+      onClick: () => {
+        selectedUser.value = 'all'
+        fetchTasks()
+      },
+    },
+  ]
+  assignableUsers.value.forEach((u) => {
+    opts.push({
+      label: `${u.full_name || u.name} (${u.email || u.name})`,
+      onClick: () => {
+        selectedUser.value = u.name
+        fetchTasks()
+      },
+    })
+  })
+  return opts
+})
+
+function exportTasksToCSV() {
+  const visible = filteredTasks.value || []
+  if (!visible.length) {
+    toast.error(__('No tasks to export.'))
+    return
+  }
+
+  const headers = [
+    'Name',
+    'Designation',
+    'Organization',
+    'Email',
+    'Phone',
+    'Country',
+    'Timezone',
+    'Data Age',
+    'Last Updated',
+    'Assigned By',
+    'Status',
+  ]
+
+  const rows = visible.map((t) => [
+    t.contact_name || t.name || '',
+    t.designation || '',
+    t.organization || '',
+    t.email || '',
+    t.mobile_no || t.phone || '',
+    t.country || '',
+    t.timezone || '',
+    t.data_age_text || timeAgo(t.modified) || '',
+    formatDate(t.modified) || '',
+    t.assigned_by || t.allocated_by || '',
+    t.status || '',
+  ])
+
+  const csvContent = [
+    headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(','),
+    ...rows.map((r) =>
+      r.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(','),
+    ),
+  ].join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute(
+    'download',
+    `my-tasks-${currentStatus.value.toLowerCase().replace(/\s+/g, '-')}-${todayStr}.csv`,
+  )
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+
+  toast.success(__('Exported {0} tasks successfully.', [visible.length]))
+}
 
 // Single Edit Modal
 const showEditModal = ref(false)
@@ -1422,7 +1752,26 @@ function getCountForStatus(statusVal) {
 }
 
 const filteredTasks = computed(() => {
-  return tasks.value || []
+  let list = tasks.value || []
+  if (activeFilters.designation.size > 0) {
+    list = list.filter((t) => activeFilters.designation.has((t.designation || '').trim()))
+  }
+  if (activeFilters.country.size > 0) {
+    list = list.filter((t) => activeFilters.country.has((t.country || '').trim()))
+  }
+  if (activeFilters.timezone.size > 0) {
+    list = list.filter((t) => activeFilters.timezone.has((t.timezone || '').trim()))
+  }
+  if (activeFilters.assigned_by.size > 0) {
+    list = list.filter((t) => activeFilters.assigned_by.has((t.assigned_by || t.allocated_by || '').trim()))
+  }
+  if (activeFilters.last_updated.size > 0) {
+    list = list.filter((t) => activeFilters.last_updated.has(getDateBucket(t.modified)))
+  }
+  if (activeFilters.data_age.size > 0) {
+    list = list.filter((t) => activeFilters.data_age.has(getDateBucket(t.data_age_date || t.modified)))
+  }
+  return list
 })
 
 // Reset pagination when page size changes (20, 50, 100)
@@ -1563,14 +1912,25 @@ function onTasksRealtimeUpdate() {
   fetchTasks()
 }
 
+function handleClickOutside(e) {
+  if (
+    filterDropdownContainerRef.value &&
+    !filterDropdownContainerRef.value.contains(e.target)
+  ) {
+    showFilterMenu.value = false
+  }
+}
+
 onMounted(() => {
   fetchTasks()
+  document.addEventListener('click', handleClickOutside)
   if ($socket) {
     $socket.on('crm_tasks_updated', onTasksRealtimeUpdate)
   }
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
   if ($socket) {
     $socket.off('crm_tasks_updated', onTasksRealtimeUpdate)
   }

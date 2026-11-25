@@ -4,6 +4,7 @@ import LeadsIcon from '@/components/Icons/LeadsIcon.vue'
 import OrganizationsIcon from '@/components/Icons/OrganizationsIcon.vue'
 import PhoneIcon from '@/components/Icons/PhoneIcon.vue'
 import TaskIcon from '@/components/Icons/TaskIcon.vue'
+import DialpadIcon from '@/components/Icons/DialpadIcon.vue'
 import FileSpreadsheetIcon from '@/components/Icons/FileSpreadsheetIcon.vue'
 import CalendarIcon from '@/components/Icons/CalendarIcon.vue'
 import LucideLayoutDashboard from '~icons/lucide/layout-dashboard'
@@ -47,9 +48,11 @@ export const navigationItems = [
   { label: 'Import', icon: FileSpreadsheetIcon, route: 'Data Imports' },
   { label: 'Daily Allocation', icon: CalendarIcon, route: 'Daily Allocation' },
   { label: 'My Task', icon: TaskIcon, route: 'Tasks' },
+  { label: 'Booking Hub', icon: CalendarIcon, route: 'Booking Hub' },
+  { label: 'Dial Pad', icon: DialpadIcon, route: 'DialPad' },
+  { label: 'Call Logs', icon: PhoneIcon, route: 'Call Logs' },
   { label: 'Leads', icon: LeadsIcon, route: 'Leads' },
   { label: 'Deals', icon: DealsIcon, route: 'Deals' },
-  { label: 'Call Logs', icon: PhoneIcon, route: 'Call Logs' },
 ]
 
 export function getNavigationItems({ mobile = false } = {}) {

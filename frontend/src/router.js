@@ -143,6 +143,12 @@ const routes = [
     props: true,
   },
   {
+    alias: '/dialpad',
+    path: '/calling/dialpad',
+    name: 'DialPad',
+    component: () => import('@/pages/DialPad.vue'),
+  },
+  {
     path: '/booking-hub/manage-sources',
     name: 'BookingHubManageSources',
     component: () => import('@/pages/BookingHubManageSources.vue'),

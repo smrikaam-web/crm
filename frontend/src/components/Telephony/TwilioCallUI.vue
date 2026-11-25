@@ -1,5 +1,5 @@
 <template>
-  <div v-show="showCallPopup" v-bind="$attrs">
+  <div v-show="showCallPopup && !isDialPadRoute" v-bind="$attrs">
     <div
       ref="callPopup"
       class="fixed z-20 flex w-72 cursor-move select-none flex-col rounded-6 bg-surface-gray-10 p-4 text-ink-gray-2 shadow-2xl"
@@ -230,7 +230,7 @@
     </div>
   </div>
   <div
-    v-show="showSmallCallWindow"
+    v-show="showSmallCallWindow && !isDialPadRoute"
     class="ml-2 flex cursor-pointer select-none items-center justify-between gap-3 rounded-6 bg-surface-gray-10 px-2 py-[7px] text-base text-ink-gray-2"
     v-bind="$attrs"
     @click="toggleCallWindow"
@@ -325,7 +325,22 @@ import {
   extractCallErrorMessage,
 } from '@/utils/twilioCall'
 import { Avatar, call, createResource, toast } from 'frappe-ui'
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { activeCallState, registerTelephonyHandlers } from '@/composables/useTelephonyCall'
+
+const route = useRoute()
+const isDialPadRoute = computed(() => {
+  const name = route?.name
+  const path = route?.path || ''
+  return (
+    name === 'DialPad' ||
+    path === '/calling/dialpad' ||
+    path === '/dialpad' ||
+    path.startsWith('/calling/dialpad') ||
+    path.startsWith('/dialpad')
+  )
+})
 
 const { capture } = useTelemetry()
 const { $socket } = globalStore()
@@ -878,6 +893,7 @@ function attachOutgoingCallListeners(callInstance) {
     log.value = 'Ringing...'
     if (!onCall.value) {
       callStatus.value = 'ringing'
+      activeCallState.status = 'ringing'
     }
   })
 
@@ -939,6 +955,13 @@ function attachOutgoingCallListeners(callInstance) {
     if (callInstance?.parameters?.CallSid) {
       activeCallSid.value = callInstance.parameters.CallSid
     }
+    onCall.value = true
+    calling.value = false
+    callStatus.value = 'connected'
+    activeCallState.onCall = true
+    activeCallState.calling = false
+    activeCallState.status = 'connected'
+    counterUp.value?.start()
   })
 
   callInstance.on('disconnect', () => {
@@ -967,6 +990,9 @@ async function handleCallDisconnected() {
   callStatus.value = 'disconnected'
   calling.value = false
   onCall.value = false
+  activeCallState.status = 'disconnected'
+  activeCallState.calling = false
+  activeCallState.onCall = false
   counterUp.value?.stop()
   muted.value = false
   showKeypad.value = false
@@ -983,6 +1009,9 @@ function handleCallCancelled() {
   callStatus.value = 'cancelled'
   calling.value = false
   onCall.value = false
+  activeCallState.status = 'cancelled'
+  activeCallState.calling = false
+  activeCallState.onCall = false
   counterUp.value?.stop()
   muted.value = false
   showKeypad.value = false
@@ -1000,6 +1029,9 @@ function cancelCall() {
   callStatus.value = 'cancelled'
   calling.value = false
   onCall.value = false
+  activeCallState.status = 'cancelled'
+  activeCallState.calling = false
+  activeCallState.onCall = false
 
   if (_call) {
     try {
@@ -1036,6 +1068,10 @@ function closeCallPopup() {
   calling.value = false
   onCall.value = false
   muted.value = false
+  activeCallState.status = 'idle'
+  activeCallState.onCall = false
+  activeCallState.calling = false
+  activeCallState.duration = '00:00:00'
   note.value = {
     name: '',
     title: '',
@@ -1073,6 +1109,82 @@ watch(
   },
   { immediate: true },
 )
+
+// Sync internal telephony state to shared activeCallState
+watch(callStatus, (val) => {
+  activeCallState.status = val || (onCall.value ? 'connected' : calling.value ? 'initiating' : 'idle')
+})
+watch(onCall, (val) => {
+  activeCallState.onCall = val
+  if (!val) {
+    activeCallState.duration = '00:00:00'
+  }
+})
+watch(calling, (val) => {
+  activeCallState.calling = val
+})
+watch(phoneNumber, (val) => {
+  activeCallState.phoneNumber = val || ''
+})
+watch(
+  contact,
+  (val) => {
+    if (val) {
+      activeCallState.contact = {
+        full_name: val.full_name || activeCallState.contact.full_name || '',
+        image: val.image || activeCallState.contact.image || '',
+        mobile_no: val.mobile_no || activeCallState.contact.mobile_no || '',
+        organization: val.company_name || val.organization || activeCallState.contact.organization || '',
+        designation: val.designation || activeCallState.contact.designation || '',
+      }
+    }
+  },
+  { deep: true },
+)
+watch(muted, (val) => {
+  activeCallState.muted = val
+})
+watch(activeCallSid, (val) => {
+  activeCallState.activeCallSid = val
+})
+watch(callErrorMessage, (val) => {
+  activeCallState.errorMessage = val
+})
+
+let durationSyncTimer = null
+onMounted(() => {
+  durationSyncTimer = setInterval(() => {
+    if (onCall.value && counterUp.value?.updatedTime) {
+      activeCallState.duration = counterUp.value.updatedTime
+    }
+  }, 500)
+
+  registerTelephonyHandlers({
+    makeCall: (num, contactData) => {
+      if (contactData) {
+        activeCallState.contact = {
+          full_name: contactData.full_name || contactData.name || '',
+          image: contactData.image || '',
+          organization: contactData.organization || contactData.company || '',
+          designation: contactData.designation || '',
+          mobile_no: num,
+        }
+      }
+      makeOutgoingCall(num)
+    },
+    hangupCall: () => hangUpCall(),
+    cancelCall: () => cancelCall(),
+    toggleMute: () => toggleMute(),
+    sendDigit: (d) => sendDigit(d),
+    saveNote: (content) => updateNote({ ...note.value, content }),
+  })
+})
+
+onBeforeUnmount(() => {
+  if (durationSyncTimer) {
+    clearInterval(durationSyncTimer)
+  }
+})
 
 defineExpose({
   makeOutgoingCall,
