@@ -76,6 +76,58 @@ COUNTRY_TIMEZONE_MAP = {
 	"sri lanka": "Asia/Colombo",
 	"nepal": "Asia/Kathmandu",
 	"israel": "Asia/Jerusalem",
+	"ph": "Asia/Manila",
+	"qa": "Asia/Qatar",
+	"om": "Asia/Muscat",
+	"be": "Europe/Brussels",
+	"nl": "Europe/Amsterdam",
+	"in": "Asia/Kolkata",
+	"sg": "Asia/Singapore",
+	"my": "Asia/Kuala_Lumpur",
+	"au": "Australia/Sydney",
+	"ca": "America/Toronto",
+	"de": "Europe/Berlin",
+	"fr": "Europe/Paris",
+	"it": "Europe/Rome",
+	"es": "Europe/Madrid",
+	"ch": "Europe/Zurich",
+	"at": "Europe/Vienna",
+	"ie": "Europe/Dublin",
+	"se": "Europe/Stockholm",
+	"no": "Europe/Oslo",
+	"dk": "Europe/Copenhagen",
+	"fi": "Europe/Helsinki",
+	"pl": "Europe/Warsaw",
+	"pt": "Europe/Lisbon",
+	"gr": "Europe/Athens",
+	"tr": "Europe/Istanbul",
+	"ru": "Europe/Moscow",
+	"sa": "Asia/Riyadh",
+	"kw": "Asia/Kuwait",
+	"bh": "Asia/Bahrain",
+	"ae": "Asia/Dubai",
+	"jp": "Asia/Tokyo",
+	"cn": "Asia/Shanghai",
+	"kr": "Asia/Seoul",
+	"id": "Asia/Jakarta",
+	"th": "Asia/Bangkok",
+	"vn": "Asia/Ho_Chi_Minh",
+	"nz": "Pacific/Auckland",
+	"za": "Africa/Johannesburg",
+	"eg": "Africa/Cairo",
+	"ng": "Africa/Lagos",
+	"ke": "Africa/Nairobi",
+	"br": "America/Sao_Paulo",
+	"mx": "America/Mexico_City",
+	"ar": "America/Argentina/Buenos_Aires",
+	"cl": "America/Santiago",
+	"co": "America/Bogota",
+	"pe": "America/Lima",
+	"bd": "Asia/Dhaka",
+	"pk": "Asia/Karachi",
+	"lk": "Asia/Colombo",
+	"np": "Asia/Kathmandu",
+	"il": "Asia/Jerusalem",
 }
 
 TZ_ABBR_OVERRIDES = {
@@ -1529,6 +1581,16 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 	if task_name and frappe.db.exists("CRM Daily Allocation", task_name):
 		task = frappe.get_doc("CRM Daily Allocation", task_name)
 		if is_admin or task.assigned_to == current_user:
+			c_val = task.country
+			if not c_val or c_val in ("Not Available", "—"):
+				c_val = resolve_country_for_contact(task.contact, task.organization)
+			display_country = c_val or "Not Available"
+
+			tz_val = task.timezone
+			if not tz_val or tz_val in ("Not Available", "—"):
+				tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
+			display_timezone = format_timezone_label(tz_val, display_country)
+
 			return {
 				"name": str(task.name),
 				"contact": task.contact,
@@ -1542,8 +1604,9 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 				"allocation_date": str(task.allocation_date),
 				"notes": task.notes or "",
 				"follow_up_date": str(task.follow_up_date) if task.follow_up_date else "",
-				"country": task.country or "Not Available",
-				"timezone": format_timezone_label(task.timezone, task.country),
+				"country": display_country,
+				"timezone": display_timezone,
+				"raw_timezone": tz_val if tz_val != "Not Available" else "",
 			}
 
 	filters = {"contact": contact}
@@ -1563,6 +1626,16 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 	)
 	if tasks:
 		t = tasks[0]
+		c_val = t.country
+		if not c_val or c_val in ("Not Available", "—"):
+			c_val = resolve_country_for_contact(t.contact, t.organization)
+		display_country = c_val or "Not Available"
+
+		tz_val = t.timezone
+		if not tz_val or tz_val in ("Not Available", "—"):
+			tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
+		display_timezone = format_timezone_label(tz_val, display_country)
+
 		return {
 			"name": str(t.name),
 			"contact": t.contact,
@@ -1576,8 +1649,9 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 			"allocation_date": str(t.allocation_date),
 			"notes": t.notes or "",
 			"follow_up_date": str(t.follow_up_date) if t.follow_up_date else "",
-			"country": t.country or "Not Available",
-			"timezone": format_timezone_label(t.timezone, t.country),
+			"country": display_country,
+			"timezone": display_timezone,
+			"raw_timezone": tz_val if tz_val != "Not Available" else "",
 		}
 	return None
 

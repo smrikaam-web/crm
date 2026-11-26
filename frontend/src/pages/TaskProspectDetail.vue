@@ -797,8 +797,23 @@ watch(
 )
 
 const breadcrumbs = computed(() => {
+  const tasksQuery = {}
+  if (route.query.status) {
+    tasksQuery.status = route.query.status
+  } else if (taskData.value?.status) {
+    tasksQuery.status = taskData.value.status
+  }
+  if (route.query.search) {
+    tasksQuery.search = route.query.search
+  }
   return [
-    { label: __('My Tasks'), route: { name: 'Tasks' } },
+    {
+      label: __('My Tasks'),
+      route: {
+        name: 'Tasks',
+        query: Object.keys(tasksQuery).length ? tasksQuery : undefined,
+      },
+    },
     {
       label: title.value,
       route: {

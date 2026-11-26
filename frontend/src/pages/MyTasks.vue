@@ -311,7 +311,11 @@
                       :to="{
                         name: 'TaskProspect',
                         params: { contactId: task.contact },
-                        query: { taskId: task.name },
+                        query: {
+                          taskId: task.name,
+                          status: currentStatus,
+                          ...(searchQuery ? { search: searchQuery } : {}),
+                        },
                       }"
                       class="truncate text-[11.5px] font-semibold leading-tight text-ink-gray-9 hover:underline hover:text-ink-primary dark:text-ink-white"
                       :title="task.contact_name || task.prospect_name || ''"
@@ -876,7 +880,7 @@
 
 <script setup>
 import { ref, shallowRef, reactive, computed, watch, watchEffect, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { call, Button, Dialog, Badge, Dropdown, Tooltip, toast } from 'frappe-ui'
 import { ListFooter } from 'frappe-ui/experimental'
 import { globalStore } from '@/stores/global'
@@ -899,6 +903,7 @@ import LucideDatabase from '~icons/lucide/database'
 import LucideChevronRight from '~icons/lucide/chevron-right'
 
 const router = useRouter()
+const route = useRoute()
 const { $dialog, $socket, makeCall } = globalStore()
 
 function openStandaloneDialpad() {
@@ -914,12 +919,27 @@ function handleRowClick(task) {
   try {
     sessionStorage.setItem('active_task_' + task.name, JSON.stringify(task))
   } catch (e) {}
+  const q = { taskId: task.name, status: currentStatus.value }
+  if (searchQuery.value) q.search = searchQuery.value
   router.push({
     name: 'TaskProspect',
     params: { contactId: task.contact },
-    query: { taskId: task.name },
+    query: q,
   })
 }
+
+const validTaskStatuses = [
+  'To Do',
+  'In Progress',
+  'Pending',
+  'Callback',
+  'Follow up',
+  'Not Interested',
+]
+const initialStatus =
+  route.query.status && validTaskStatuses.includes(route.query.status)
+    ? route.query.status
+    : 'To Do'
 
 const todayStr = new Date().toLocaleDateString('en-CA')
 const loading = ref(false)
@@ -928,8 +948,8 @@ const isAdmin = ref(false)
 const selectedUser = ref('all')
 const dateFilterMode = ref('all')
 const customDate = ref(todayStr)
-const currentStatus = ref('To Do')
-const searchQuery = ref('')
+const currentStatus = ref(initialStatus)
+const searchQuery = ref(typeof route.query.search === 'string' ? route.query.search : '')
 const pageSize = ref(20)
 const totalTasksCount = ref(0)
 const serverStatusCounts = ref({})
@@ -1779,19 +1799,58 @@ watch(pageSize, () => {
   fetchTasks()
 })
 
-// Reset pagination when status tab changes
-watch(currentStatus, () => {
+// Reset pagination and sync route when status tab changes
+watch(currentStatus, (newVal) => {
+  if (route.query.status !== newVal) {
+    router.replace({
+      query: {
+        ...route.query,
+        status: newVal,
+      },
+    })
+  }
   fetchTasks()
 })
 
-// Debounce search query
+// Sync status when navigating via browser back/forward
+watch(
+  () => route.query.status,
+  (newStatus) => {
+    const target = newStatus && validTaskStatuses.includes(newStatus) ? newStatus : 'To Do'
+    if (currentStatus.value !== target) {
+      currentStatus.value = target
+    }
+  },
+)
+
+// Debounce search query and sync with route query
 let searchTimer = null
-watch(searchQuery, () => {
+watch(searchQuery, (newVal) => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    const curSearch = route.query.search || ''
+    if (curSearch !== (newVal || '')) {
+      const nextQuery = { ...route.query }
+      if (newVal) {
+        nextQuery.search = newVal
+      } else {
+        delete nextQuery.search
+      }
+      router.replace({ query: nextQuery })
+    }
     fetchTasks()
   }, 300)
 })
+
+watch(
+  () => route.query.search,
+  (newSearch) => {
+    const target = typeof newSearch === 'string' ? newSearch : ''
+    if (searchQuery.value !== target) {
+      searchQuery.value = target
+    }
+  },
+)
 
 // Checkbox selection computed & indeterminate state
 const isAllSelected = computed(() => {

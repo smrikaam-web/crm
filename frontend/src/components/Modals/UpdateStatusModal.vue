@@ -39,7 +39,28 @@
           </select>
         </div>
 
-        <!-- 2. Connected to -->
+        <!-- 2. Sub Status (Conditional: Only visible when Main Status = Not Contacted or Not Valid) -->
+        <div v-if="showSubStatus">
+          <label class="block text-xs font-medium text-ink-gray-7 mb-1.5">
+            {{ __('Sub Status') }} <span class="text-ink-red-3">*</span>
+          </label>
+          <select
+            v-model="form.sub_status"
+            class="w-full rounded-md border border-outline-gray-2 bg-surface-white px-3 py-2 text-sm text-ink-gray-9 focus:border-outline-gray-4 focus:outline-none transition-colors"
+            required
+          >
+            <option value="" disabled>{{ __('Select Sub Status') }}</option>
+            <option
+              v-for="opt in subStatusOptions"
+              :key="opt"
+              :value="opt"
+            >
+              {{ __(opt) }}
+            </option>
+          </select>
+        </div>
+
+        <!-- 3. Connected to -->
         <div>
           <label class="block text-xs font-medium text-ink-gray-7 mb-1.5">
             {{ __('Connected to') }}
@@ -237,7 +258,11 @@
           variant="solid"
           :label="__('Save')"
           :loading="saving"
-          :disabled="saving || charCount < 15"
+          :disabled="
+            saving ||
+            charCount < 15 ||
+            (showSubStatus && !form.sub_status)
+          "
           @click="submitForm"
         />
       </div>
@@ -248,6 +273,7 @@
 <script setup>
 import { Dialog, Button, toast, call } from 'frappe-ui'
 import { ref, reactive, computed, watch } from 'vue'
+import { getSubStatusOptions, isSubStatusRequired } from '@/utils/statusOptions'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -272,6 +298,7 @@ const requirementChips = ['Book discovery call', 'Send proposal', 'Confirm requi
 
 const form = reactive({
   main_status: 'Contacted',
+  sub_status: '',
   connected_to: 'Decision Maker (already confirmed)',
   activity_status: 'Portfolio Sent',
   next_action: '',
@@ -279,6 +306,9 @@ const form = reactive({
   call_back_date: '',
   description: '',
 })
+
+const subStatusOptions = computed(() => getSubStatusOptions(form.main_status))
+const showSubStatus = computed(() => isSubStatusRequired(form.main_status))
 
 const charCount = computed(() => {
   return (form.description || '').trim().length
@@ -289,6 +319,7 @@ const submitted = ref(false)
 const errorMessage = ref('')
 
 function onMainStatusChange() {
+  form.sub_status = ''
   if (form.main_status !== 'Contacted') {
     form.activity_status = ''
     form.next_action = ''
@@ -313,6 +344,7 @@ watch(
       submitted.value = false
       errorMessage.value = ''
       form.main_status = 'Contacted'
+      form.sub_status = ''
       form.connected_to = 'Decision Maker (already confirmed)'
       form.activity_status = 'Portfolio Sent'
       form.next_action = ''
@@ -329,6 +361,11 @@ async function submitForm() {
 
   if (charCount.value < 15) {
     errorMessage.value = __('Description must be at least 15 characters long.')
+    return
+  }
+
+  if (showSubStatus.value && !form.sub_status) {
+    errorMessage.value = __('Please select a Sub Status.')
     return
   }
 
@@ -353,6 +390,7 @@ async function submitForm() {
     const res = await call('crm.api.contact.create_prospect_status_update', {
       contact: props.contactId,
       main_status: form.main_status,
+      sub_status: showSubStatus.value ? form.sub_status : null,
       connected_to: form.connected_to || 'Decision Maker (already confirmed)',
       activity_status:
         form.main_status === 'Contacted' ? form.activity_status : null,

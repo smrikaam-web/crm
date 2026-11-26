@@ -78,6 +78,7 @@ const routes = [
     path: '/tasks/view/:viewType?',
     name: 'Tasks',
     component: () => import('@/pages/MyTasks.vue'),
+    meta: { viewKey: 'tasks' },
   },
   {
     path: '/tasks/prospect/:contactId',

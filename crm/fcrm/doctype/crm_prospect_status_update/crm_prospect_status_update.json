@@ -11,6 +11,7 @@
   "contact",
   "task",
   "main_status",
+  "sub_status",
   "connected_to",
   "activity_status",
   "next_action",
@@ -47,6 +48,14 @@
    "reqd": 1
   },
   {
+   "fieldname": "sub_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sub Status",
+   "options": "\nVoice mail\nNo answer\nWrong number\nOthers"
+  },
+  {
    "default": "Decision Maker (already confirmed)",
    "fieldname": "connected_to",
    "fieldtype": "Data",
@@ -58,7 +67,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Activity Status",
-   "options": "Portfolio Sent\nRequirement Gathered\nCall Back\nNot Interested\nFollow Up"
+   "options": "\nPortfolio Sent\nRequirement Gathered\nCall Back\nNot Interested\nFollow Up"
   },
   {
    "fieldname": "next_action",

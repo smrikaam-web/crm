@@ -62,6 +62,112 @@ class TestCRMProspectStatusUpdate(FrappeTestCase):
 		self.assertTrue(len(history) >= 1)
 		self.assertEqual(history[0]["name"], res["name"])
 		self.assertEqual(history[0]["description"], "Sent the revised company presentation and case studies.")
+		self.assertIsNone(history[0].get("sub_status"))
+
+	def test_not_contacted_with_sub_status(self):
+		"""Not Contacted requires Sub Status ('Voice mail' or 'No answer') and persists correctly."""
+		# Missing sub_status should fail
+		with self.assertRaises(frappe.ValidationError):
+			create_prospect_status_update(
+				contact=self.contact,
+				main_status="Not Contacted",
+				description="Attempted call but no response received from prospect.",
+			)
+
+		# Invalid sub_status should fail
+		with self.assertRaises(frappe.ValidationError):
+			create_prospect_status_update(
+				contact=self.contact,
+				main_status="Not Contacted",
+				sub_status="Wrong number",  # wrong category
+				description="Attempted call but no response received from prospect.",
+			)
+
+		# Valid: Voice mail
+		res_vm = create_prospect_status_update(
+			contact=self.contact,
+			main_status="Not Contacted",
+			sub_status="Voice mail",
+			description="Attempted call to prospect and left a detailed voicemail message.",
+		)
+		self.assertEqual(res_vm["main_status"], "Not Contacted")
+		self.assertEqual(res_vm["sub_status"], "Voice mail")
+		self.assertIsNone(res_vm["activity_status"])
+
+		# Valid: No answer
+		res_na = create_prospect_status_update(
+			contact=self.contact,
+			main_status="Not Contacted",
+			sub_status="No answer",
+			description="Rang for 45 seconds but received no answer from the prospect.",
+		)
+		self.assertEqual(res_na["main_status"], "Not Contacted")
+		self.assertEqual(res_na["sub_status"], "No answer")
+
+		history = get_prospect_status_history(self.contact)
+		self.assertEqual(history[0]["name"], res_na["name"])
+		self.assertEqual(history[0]["sub_status"], "No answer")
+		self.assertEqual(history[1]["name"], res_vm["name"])
+		self.assertEqual(history[1]["sub_status"], "Voice mail")
+
+	def test_not_valid_with_sub_status(self):
+		"""Not Valid requires Sub Status ('Wrong number' or 'Others') and persists correctly."""
+		# Missing sub_status should fail
+		with self.assertRaises(frappe.ValidationError):
+			create_prospect_status_update(
+				contact=self.contact,
+				main_status="Not Valid",
+				description="Dialed the number provided on file and it was invalid.",
+			)
+
+		# Invalid sub_status should fail
+		with self.assertRaises(frappe.ValidationError):
+			create_prospect_status_update(
+				contact=self.contact,
+				main_status="Not Valid",
+				sub_status="Voice mail",  # wrong category
+				description="Dialed the number provided on file and it was invalid.",
+			)
+
+		# Valid: Wrong number
+		res_wn = create_prospect_status_update(
+			contact=self.contact,
+			main_status="Not Valid",
+			sub_status="Wrong number",
+			description="Person answering indicated this was the wrong number entirely.",
+		)
+		self.assertEqual(res_wn["main_status"], "Not Valid")
+		self.assertEqual(res_wn["sub_status"], "Wrong number")
+
+		# Valid: Others
+		res_ot = create_prospect_status_update(
+			contact=self.contact,
+			main_status="Not Valid",
+			sub_status="Others",
+			description="Number is disconnected or out of service permanently.",
+		)
+		self.assertEqual(res_ot["main_status"], "Not Valid")
+		self.assertEqual(res_ot["sub_status"], "Others")
+
+		history = get_prospect_status_history(self.contact)
+		self.assertEqual(history[0]["name"], res_ot["name"])
+		self.assertEqual(history[0]["sub_status"], "Others")
+		self.assertEqual(history[1]["name"], res_wn["name"])
+		self.assertEqual(history[1]["sub_status"], "Wrong number")
+
+	def test_activities_includes_sub_status(self):
+		"""Contact activities timeline contains sub_status in item and title."""
+		res = create_prospect_status_update(
+			contact=self.contact,
+			main_status="Not Contacted",
+			sub_status="Voice mail",
+			description="Left a voicemail requesting callback regarding initial proposal.",
+		)
+		activities = get_contact_activities(self.contact)
+		found = next((item for item in activities["status_updates"] if item["name"] == res["name"]), None)
+		self.assertIsNotNone(found)
+		self.assertEqual(found["sub_status"], "Voice mail")
+		self.assertIn("Voice mail", found["activity_title"])
 
 	def test_activities_includes_status_updates(self):
 		"""Contact activities timeline contains status updates."""

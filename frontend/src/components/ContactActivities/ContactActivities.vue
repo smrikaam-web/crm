@@ -29,9 +29,16 @@
 
       <!-- Action Button Area -->
       <div class="flex items-center gap-2 py-1.5">
-        <!-- All Activity tab actions: Dropdown -->
+        <!-- All Activity tab actions: Standalone Update Status button when showUpdateStatus is enabled, or fallback to Dropdown if not -->
+        <Button
+          v-if="activeTab === 'all_activity' && props.showUpdateStatus"
+          variant="solid"
+          :label="__('Update Status')"
+          :iconLeft="CheckCircleIcon"
+          @click="showUpdateStatusModal = true"
+        />
         <Dropdown
-          v-if="activeTab === 'all_activity'"
+          v-else-if="activeTab === 'all_activity' && allActivityActionOptions.length"
           :options="allActivityActionOptions"
         >
           <template #default="{ open }">
@@ -386,9 +393,16 @@
                   </span>
                   <span
                     v-if="item.main_status"
-                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eaf8ee] text-[#1b7a37] border border-[#c6efd0]"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                    :class="getMainStatusBadgeClass(item.main_status)"
                   >
                     {{ item.main_status }}
+                  </span>
+                  <span
+                    v-if="item.sub_status"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-surface-gray-2 text-ink-gray-8 border border-outline-gray-3"
+                  >
+                    {{ item.sub_status }}
                   </span>
                 </div>
                 <div class="text-xs text-ink-gray-5 whitespace-nowrap shrink-0">
@@ -399,7 +413,7 @@
               <!-- Line 2: Details summary -->
               <div class="mt-1 pl-9.5 text-xs text-ink-gray-6 flex items-center justify-between gap-2">
                 <div class="truncate text-ink-gray-7 dark:text-ink-gray-3">
-                  <span>{{ item.activity_status || item.main_status }}</span>
+                  <span>{{ item.sub_status ? `${item.main_status} - ${item.sub_status}` : (item.activity_status || item.main_status) }}</span>
                   <template v-if="item.next_action">
                     <span class="text-ink-gray-4"> • </span>
                     <span>Next: {{ item.next_action }}</span>
@@ -745,7 +759,15 @@
                   {{ item.main_status }}
                 </Badge>
                 <Badge
-                  v-if="item.activity_status"
+                  v-if="item.sub_status"
+                  variant="outline"
+                  size="sm"
+                  class="bg-surface-gray-2 text-ink-gray-8 border-outline-gray-3"
+                >
+                  {{ item.sub_status }}
+                </Badge>
+                <Badge
+                  v-else-if="item.activity_status"
                   variant="outline"
                   size="sm"
                   class="bg-surface-gray-2 text-ink-gray-8 border-outline-gray-3"

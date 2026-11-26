@@ -388,7 +388,7 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 	if frappe.db.table_exists("CRM Prospect Status Update"):
 		raw_status_updates = frappe.db.sql(
 			"""
-			SELECT name, contact, task, main_status, connected_to, activity_status,
+			SELECT name, contact, task, main_status, sub_status, connected_to, activity_status,
 				   next_action, follow_up_date, call_back_date, description, creation, owner
 			FROM `tabCRM Prospect Status Update`
 			WHERE contact = %(contact)s
@@ -566,13 +566,17 @@ def get_contact_activities(contact: str) -> dict[str, Any]:
 	status_updates_list = []
 	for su in raw_status_updates:
 		author_name = user_full_names.get(su["owner"], su["owner"] or "User")
-		title_st = su.get("activity_status") or su.get("main_status")
+		if su.get("sub_status"):
+			title_st = f"{su.get('main_status')} ({su.get('sub_status')})"
+		else:
+			title_st = su.get("activity_status") or su.get("main_status")
 		status_updates_list.append({
 			"activity_type": "status_update",
 			"name": su["name"],
 			"contact": su["contact"],
 			"task": su.get("task"),
 			"main_status": su.get("main_status"),
+			"sub_status": su.get("sub_status"),
 			"connected_to": su.get("connected_to"),
 			"activity_status": su.get("activity_status"),
 			"next_action": su.get("next_action"),
@@ -929,6 +933,7 @@ def create_prospect_status_update(
 	description: str,
 	connected_to: str | None = None,
 	activity_status: str | None = None,
+	sub_status: str | None = None,
 	next_action: str | None = None,
 	follow_up_date: str | None = None,
 	call_back_date: str | None = None,
@@ -948,9 +953,14 @@ def create_prospect_status_update(
 	if main_status not in valid_main:
 		frappe.throw(_("Invalid Main Status. Must be one of: {0}").format(", ".join(valid_main)))
 
-	# Ensure doctype table exists
-	if not frappe.db.table_exists("CRM Prospect Status Update"):
+	# Ensure doctype table exists and column sub_status exists
+	if not frappe.db.table_exists("CRM Prospect Status Update") or not frappe.db.has_column("CRM Prospect Status Update", "sub_status"):
 		frappe.reload_doc("fcrm", "doctype", "crm_prospect_status_update", force=True)
+		if not frappe.db.has_column("CRM Prospect Status Update", "sub_status"):
+			try:
+				frappe.db.add_column("CRM Prospect Status Update", "sub_status", "VARCHAR(140)")
+			except Exception:
+				pass
 
 	doc = frappe.new_doc("CRM Prospect Status Update")
 	doc.contact = contact
@@ -964,10 +974,34 @@ def create_prospect_status_update(
 		if activity_status and activity_status not in valid_activities:
 			frappe.throw(_("Invalid Activity Status. Must be one of: {0}").format(", ".join(valid_activities)))
 		doc.activity_status = activity_status or None
+		doc.sub_status = None
 		doc.next_action = next_action or None
 		doc.follow_up_date = follow_up_date or None
 		doc.call_back_date = call_back_date or None
+	elif main_status == "Not Contacted":
+		valid_subs = ("Voice mail", "No answer")
+		if not sub_status:
+			frappe.throw(_("Sub Status is required when Main Status is Not Contacted."))
+		if sub_status not in valid_subs:
+			frappe.throw(_("Invalid Sub Status for Not Contacted. Must be one of: {0}").format(", ".join(valid_subs)))
+		doc.sub_status = sub_status
+		doc.activity_status = None
+		doc.next_action = None
+		doc.follow_up_date = None
+		doc.call_back_date = None
+	elif main_status == "Not Valid":
+		valid_subs = ("Wrong number", "Others")
+		if not sub_status:
+			frappe.throw(_("Sub Status is required when Main Status is Not Valid."))
+		if sub_status not in valid_subs:
+			frappe.throw(_("Invalid Sub Status for Not Valid. Must be one of: {0}").format(", ".join(valid_subs)))
+		doc.sub_status = sub_status
+		doc.activity_status = None
+		doc.next_action = None
+		doc.follow_up_date = None
+		doc.call_back_date = None
 	else:
+		doc.sub_status = None
 		doc.activity_status = None
 		doc.next_action = None
 		doc.follow_up_date = None
@@ -1019,6 +1053,7 @@ def create_prospect_status_update(
 		"contact": doc.contact,
 		"task": doc.task,
 		"main_status": doc.main_status,
+		"sub_status": getattr(doc, "sub_status", None),
 		"connected_to": doc.connected_to,
 		"activity_status": doc.activity_status,
 		"next_action": doc.next_action,
@@ -1043,7 +1078,7 @@ def get_prospect_status_history(contact: str) -> list[dict[str, Any]]:
 
 	records = frappe.db.sql(
 		"""
-		SELECT name, contact, task, main_status, connected_to, activity_status,
+		SELECT name, contact, task, main_status, sub_status, connected_to, activity_status,
 			   next_action, follow_up_date, call_back_date, description, creation, owner
 		FROM `tabCRM Prospect Status Update`
 		WHERE contact = %(contact)s
@@ -1061,6 +1096,7 @@ def get_prospect_status_history(contact: str) -> list[dict[str, Any]]:
 			"contact": r.contact,
 			"task": r.task,
 			"main_status": r.main_status,
+			"sub_status": r.get("sub_status"),
 			"connected_to": r.connected_to,
 			"activity_status": r.activity_status,
 			"next_action": r.next_action,
