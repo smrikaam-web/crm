@@ -271,7 +271,7 @@
           <div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-ink-gray-4">{{ __('Country') }}</div>
             <div class="text-xs font-medium text-ink-gray-9 dark:text-ink-white">
-              {{ contact.doc.country || taskData?.country || '—' }}
+              {{ contact.doc.country || contact.doc.custom_country || taskData?.country || '—' }}
             </div>
           </div>
         </div>
@@ -637,6 +637,12 @@ import { getSettings } from '@/stores/settings'
 import { getMeta } from '@/stores/meta'
 import { globalStore } from '@/stores/global.js'
 import { useTelephonyCall } from '@/composables/useTelephonyCall'
+import {
+  resolveProspectTimezone,
+  formatProspectLocalTime,
+  formatProspectTimezoneDisplay,
+  getUtcOffset,
+} from '@/utils/timezone'
 import {
   Breadcrumbs,
   call,
@@ -1166,7 +1172,12 @@ const countryToIsoMap = {
 }
 
 const prospectCountry = computed(() => {
-  return (contact.doc?.country || taskData.value?.country || '').trim()
+  return (
+    contact.doc?.country ||
+    contact.doc?.custom_country ||
+    taskData.value?.country ||
+    ''
+  ).trim()
 })
 
 const prospectCountryIso = computed(() => {
@@ -1177,133 +1188,26 @@ const prospectCountryIso = computed(() => {
   return null
 })
 
-// Timezone and Dynamic Local Greeting
-function resolveTimeZone(countryName, tzField) {
-  const c = (countryName || '').toLowerCase()
-  const t = (tzField || '').toLowerCase()
-
-  if (t.includes('kolkata') || t.includes('+05:30') || t.includes('ist')) return 'Asia/Kolkata'
-  if (t.includes('new_york') || t.includes('est') || t.includes('edt') || t.includes('-05:00')) return 'America/New_York'
-  if (t.includes('vienna') || t.includes('cet') || t.includes('cest') || t.includes('+01:00')) return 'Europe/Vienna'
-  if (t.includes('london') || t.includes('gmt') || t.includes('bst') || t.includes('+00:00')) return 'Europe/London'
-  if (t.includes('berlin')) return 'Europe/Berlin'
-  if (t.includes('paris')) return 'Europe/Paris'
-  if (t.includes('dubai') || t.includes('+04:00')) return 'Asia/Dubai'
-  if (t.includes('singapore') || t.includes('+08:00')) return 'Asia/Singapore'
-  if (t.includes('sydney') || t.includes('+10:00') || t.includes('aest')) return 'Australia/Sydney'
-  if (t.includes('zurich')) return 'Europe/Zurich'
-
-  if (c === 'india' || c === 'in') return 'Asia/Kolkata'
-  if (c === 'austria' || c === 'at') return 'Europe/Vienna'
-  if (c === 'united states' || c === 'usa' || c === 'us') return 'America/New_York'
-  if (c === 'united kingdom' || c === 'uk' || c === 'gb') return 'Europe/London'
-  if (c === 'germany' || c === 'de') return 'Europe/Berlin'
-  if (c === 'france' || c === 'fr') return 'Europe/Paris'
-  if (c === 'australia' || c === 'au') return 'Australia/Sydney'
-  if (c === 'uae' || c === 'united arab emirates' || c === 'ae') return 'Asia/Dubai'
-  if (c === 'singapore' || c === 'sg') return 'Asia/Singapore'
-  if (c === 'switzerland' || c === 'ch') return 'Europe/Zurich'
-  if (c === 'canada' || c === 'ca') return 'America/Toronto'
-  if (c === 'netherlands' || c === 'nl') return 'Europe/Amsterdam'
-  if (c === 'ireland' || c === 'ie') return 'Europe/Dublin'
-
-  if (tzField) {
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: tzField })
-      return tzField
-    } catch (e) {}
-  }
-
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
-}
-
-function getUtcOffset(timeZone, date) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      timeZoneName: 'shortOffset',
-    }).formatToParts(date)
-    const tzPart = parts.find((p) => p.type === 'timeZoneName')
-    if (tzPart?.value && tzPart.value.startsWith('GMT')) {
-      const raw = tzPart.value.replace('GMT', 'UTC')
-      const match = raw.match(/UTC([+-])(\d+)(?::(\d+))?/)
-      if (match) {
-        const sign = match[1]
-        const h = match[2].padStart(2, '0')
-        const m = (match[3] || '00').padStart(2, '0')
-        return `UTC${sign}${h}:${m}`
-      }
-      return raw
-    }
-  } catch (e) {}
-
-  if (timeZone === 'Asia/Kolkata') return 'UTC+05:30'
-  if (timeZone === 'America/New_York' || timeZone === 'America/Toronto') return 'UTC-05:00'
-  if (timeZone === 'Europe/Vienna' || timeZone === 'Europe/Berlin' || timeZone === 'Europe/Paris' || timeZone === 'Europe/Zurich' || timeZone === 'Europe/Amsterdam') return 'UTC+01:00'
-  if (timeZone === 'Europe/London' || timeZone === 'Europe/Dublin') return 'UTC+00:00'
-  if (timeZone === 'Asia/Dubai') return 'UTC+04:00'
-  if (timeZone === 'Asia/Singapore') return 'UTC+08:00'
-  if (timeZone === 'Australia/Sydney') return 'UTC+10:00'
-  return 'UTC+05:30'
-}
-
+// Authoritative Timezone and Dynamic Local Greeting via central timezone utility
 const resolvedTimeZone = computed(() => {
-  return resolveTimeZone(prospectCountry.value, taskData.value?.timezone || contact.doc?.timezone)
+  return resolveProspectTimezone({
+    timezone: taskData.value?.timezone || contact.doc?.timezone,
+    rawTimezone: taskData.value?.raw_timezone || taskData.value?.iana_timezone,
+    customTimezone: contact.doc?.custom_timezone,
+    country: prospectCountry.value,
+  })
 })
 
 const prospectTimezoneDisplay = computed(() => {
-  const tz = resolvedTimeZone.value
-  const offset = getUtcOffset(tz, currentTime.value)
-  return `${tz} (${offset})`
+  return formatProspectTimezoneDisplay(
+    resolvedTimeZone.value,
+    prospectCountry.value,
+    currentTime.value,
+  )
 })
 
 const prospectLocalTime = computed(() => {
-  const timeZone = resolvedTimeZone.value
-  const now = currentTime.value
-
-  try {
-    const timeFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-    const timeFormatted = timeFormatter.format(now)
-
-    const hourFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hour: 'numeric',
-      hourCycle: 'h23',
-    })
-    const hour = parseInt(hourFormatter.format(now), 10)
-
-    let greeting = 'Good morning'
-    if (hour >= 5 && hour < 12) {
-      greeting = 'Good morning'
-    } else if (hour >= 12 && hour < 17) {
-      greeting = 'Good afternoon'
-    } else if (hour >= 17 && hour < 21) {
-      greeting = 'Good evening'
-    } else {
-      greeting = 'Good night'
-    }
-
-    const offset = getUtcOffset(timeZone, now)
-
-    return {
-      time: timeFormatted,
-      offset,
-      greeting,
-      display: `${timeFormatted} · ${offset} · ${greeting}`,
-    }
-  } catch (e) {
-    return {
-      time: '12:53 PM',
-      offset: 'UTC+05:30',
-      greeting: 'Good afternoon',
-      display: '12:53 PM · UTC+05:30 · Good afternoon',
-    }
-  }
+  return formatProspectLocalTime(resolvedTimeZone.value, currentTime.value)
 })
 
 // Data Age & Last Updated

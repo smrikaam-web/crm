@@ -197,11 +197,37 @@ def get_timezone_for_country(country: str | None) -> str:
 	return "Not Available"
 
 
+def is_valid_iana(tz_str: str | None) -> bool:
+	"""Check if the string is a valid IANA timezone identifier."""
+	if not tz_str:
+		return False
+	tz_clean = str(tz_str).strip()
+	if not tz_clean or tz_clean in ("Not Available", "—"):
+		return False
+	if tz_clean.startswith(("GMT", "UTC")):
+		return False
+	try:
+		from zoneinfo import ZoneInfo
+		ZoneInfo(tz_clean)
+		return True
+	except Exception:
+		return False
+
+
 def resolve_country_for_contact(contact_name: str, org_name: str | None = None) -> str | None:
-	"""Retrieve country from linked Address record via Contact or Organization."""
+	"""Retrieve country from Contact custom_country, or linked Address record via Contact or Organization."""
 	if not contact_name:
 		return None
-	# 1. Address directly linked to Contact
+
+	# 1. Direct custom_country on Contact
+	try:
+		c_val = frappe.db.get_value("Contact", contact_name, "custom_country")
+		if c_val and str(c_val).strip() and str(c_val).strip() not in ("Not Available", "—"):
+			return str(c_val).strip()
+	except Exception:
+		pass
+
+	# 2. Address directly linked to Contact
 	country_res = frappe.db.sql("""
 		SELECT a.country FROM `tabAddress` a
 		JOIN `tabDynamic Link` dl ON dl.parent = a.name
@@ -211,7 +237,7 @@ def resolve_country_for_contact(contact_name: str, org_name: str | None = None) 
 	if country_res and country_res[0][0]:
 		return country_res[0][0]
 
-	# 2. Address linked to Organization
+	# 3. Address linked to Organization
 	if org_name:
 		country_res = frappe.db.sql("""
 			SELECT a.country FROM `tabAddress` a
@@ -222,13 +248,13 @@ def resolve_country_for_contact(contact_name: str, org_name: str | None = None) 
 		if country_res and country_res[0][0]:
 			return country_res[0][0]
 
-	# 3. CRM Daily Allocation linked to Contact
+	# 4. CRM Daily Allocation linked to Contact
 	alloc_country = frappe.db.get_value(
 		"CRM Daily Allocation",
 		{"contact": contact_name, "country": ["is", "set"]},
 		"country",
 	)
-	if alloc_country and alloc_country != "Not Available":
+	if alloc_country and alloc_country not in ("Not Available", "—"):
 		return alloc_country
 
 	return None
@@ -539,6 +565,8 @@ def get_allocated_tasks(
 			da.creation,
 			da.modified,
 			c.designation,
+			c.custom_country,
+			c.custom_timezone,
 			c.company_name AS contact_company,
 			c.creation AS contact_creation,
 			c.modified AS contact_modified
@@ -591,15 +619,21 @@ def get_allocated_tasks(
 		alloc_by_id = row.allocated_by
 
 		# Country and Timezone resolution
-		c_val = row.get("country")
+		c_val = row.get("country") or row.get("custom_country")
 		if not c_val:
 			c_val = batched_countries.get(("Contact", row.contact)) or batched_countries.get(("CRM Organization", row.organization))
 		display_country = c_val or "Not Available"
 
-		tz_val = row.get("timezone")
+		tz_val = row.get("timezone") or row.get("custom_timezone")
 		if not tz_val or tz_val == "Not Available":
 			tz_val = get_timezone_for_country(c_val) if c_val else "Not Available"
 		display_timezone = format_timezone_label(tz_val, c_val)
+
+		iana_tz = tz_val if is_valid_iana(tz_val) else ""
+		if not iana_tz and display_country and display_country != "Not Available":
+			country_tz = get_timezone_for_country(display_country)
+			if is_valid_iana(country_tz):
+				iana_tz = country_tz
 
 		# Clean status mapping
 		st_val = row.status or "To Do"
@@ -619,7 +653,8 @@ def get_allocated_tasks(
 			"mobile_no": row.mobile_no or "",
 			"country": display_country,
 			"timezone": display_timezone,
-			"raw_timezone": tz_val or "",
+			"raw_timezone": iana_tz or tz_val or "",
+			"iana_timezone": iana_tz or "",
 			"allocation_date": str(row.allocation_date),
 			"assigned_to": row.assigned_to,
 			"assigned_to_name": user_names.get(assigned_id, assigned_id or ""),
@@ -1588,8 +1623,18 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 
 			tz_val = task.timezone
 			if not tz_val or tz_val in ("Not Available", "—"):
-				tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
+				c_tz = frappe.db.get_value("Contact", task.contact, "custom_timezone") if task.contact else None
+				if c_tz and str(c_tz).strip() and str(c_tz).strip() not in ("Not Available", "—"):
+					tz_val = str(c_tz).strip()
+				else:
+					tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
 			display_timezone = format_timezone_label(tz_val, display_country)
+
+			iana_tz = tz_val if is_valid_iana(tz_val) else ""
+			if not iana_tz and display_country and display_country != "Not Available":
+				country_tz = get_timezone_for_country(display_country)
+				if is_valid_iana(country_tz):
+					iana_tz = country_tz
 
 			return {
 				"name": str(task.name),
@@ -1606,7 +1651,8 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 				"follow_up_date": str(task.follow_up_date) if task.follow_up_date else "",
 				"country": display_country,
 				"timezone": display_timezone,
-				"raw_timezone": tz_val if tz_val != "Not Available" else "",
+				"raw_timezone": iana_tz or tz_val or "",
+				"iana_timezone": iana_tz or "",
 			}
 
 	filters = {"contact": contact}
@@ -1633,8 +1679,18 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 
 		tz_val = t.timezone
 		if not tz_val or tz_val in ("Not Available", "—"):
-			tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
+			c_tz = frappe.db.get_value("Contact", t.contact, "custom_timezone") if t.contact else None
+			if c_tz and str(c_tz).strip() and str(c_tz).strip() not in ("Not Available", "—"):
+				tz_val = str(c_tz).strip()
+			else:
+				tz_val = get_timezone_for_country(display_country) if (display_country and display_country != "Not Available") else "Not Available"
 		display_timezone = format_timezone_label(tz_val, display_country)
+
+		iana_tz = tz_val if is_valid_iana(tz_val) else ""
+		if not iana_tz and display_country and display_country != "Not Available":
+			country_tz = get_timezone_for_country(display_country)
+			if is_valid_iana(country_tz):
+				iana_tz = country_tz
 
 		return {
 			"name": str(t.name),
@@ -1651,7 +1707,8 @@ def get_task_for_contact(contact: str, task_name: str | None = None) -> dict[str
 			"follow_up_date": str(t.follow_up_date) if t.follow_up_date else "",
 			"country": display_country,
 			"timezone": display_timezone,
-			"raw_timezone": tz_val if tz_val != "Not Available" else "",
+			"raw_timezone": iana_tz or tz_val or "",
+			"iana_timezone": iana_tz or "",
 		}
 	return None
 

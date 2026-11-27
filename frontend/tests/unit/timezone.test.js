@@ -233,6 +233,60 @@ describe('Timezone utilities (frontend/src/utils/timezone.js)', () => {
       expect(formatProspectTimezoneDisplay('Asia/Manila')).toBe('Asia/Manila (UTC+08:00)')
       expect(formatProspectTimezoneDisplay('Asia/Qatar')).toBe('Asia/Qatar (UTC+03:00)')
       expect(formatProspectTimezoneDisplay('Asia/Muscat')).toBe('Asia/Muscat (UTC+04:00)')
+      expect(formatProspectTimezoneDisplay('Europe/Brussels')).toBe('Europe/Brussels (UTC+01:00)')
+      expect(formatProspectTimezoneDisplay('Europe/Amsterdam')).toBe('Europe/Amsterdam (UTC+01:00)')
+    })
+  })
+
+  describe('Production Bug Regression: Haytham Abdeen (Qatar) and similar prospects', () => {
+    it('accurately resolves Qatar with raw GMT+3 and raw_timezone', () => {
+      // Case 1: MyTasks payload with raw_timezone = 'Asia/Qatar' and timezone = 'GMT+3'
+      const tz1 = resolveProspectTimezone({
+        country: 'Qatar',
+        timezone: 'GMT+3',
+        rawTimezone: 'Asia/Qatar',
+      })
+      expect(tz1).toBe('Asia/Qatar')
+      expect(formatProspectTimezoneDisplay(tz1)).toBe('Asia/Qatar (UTC+03:00)')
+
+      // Case 2: Only country = 'Qatar' and timezone = 'GMT+3' (no raw_timezone)
+      const tz2 = resolveProspectTimezone({
+        country: 'Qatar',
+        timezone: 'GMT+3',
+      })
+      expect(tz2).toBe('Asia/Qatar')
+      expect(formatProspectTimezoneDisplay(tz2)).toBe('Asia/Qatar (UTC+03:00)')
+
+      // CRITICAL: Must NEVER resolve to Europe/London
+      expect(tz1).not.toBe('Europe/London')
+      expect(tz2).not.toBe('Europe/London')
+    })
+
+    it('accurately resolves Oman with raw GMT+4 and raw_timezone', () => {
+      const tz = resolveProspectTimezone({
+        country: 'Oman',
+        timezone: 'GMT+4',
+      })
+      expect(tz).toBe('Asia/Muscat')
+      expect(formatProspectTimezoneDisplay(tz)).toBe('Asia/Muscat (UTC+04:00)')
+      expect(tz).not.toBe('Europe/London')
+    })
+
+    it('accurately resolves Philippines with raw GMT+8 and raw_timezone', () => {
+      const tz = resolveProspectTimezone({
+        country: 'Philippines',
+        timezone: 'GMT+8',
+      })
+      expect(tz).toBe('Asia/Manila')
+      expect(formatProspectTimezoneDisplay(tz)).toBe('Asia/Manila (UTC+08:00)')
+      expect(tz).not.toBe('Europe/London')
+    })
+
+    it('does NOT interpret raw offsets like GMT+3, GMT+4, GMT+8 as Europe/London or UTC+00:00 when country is missing', () => {
+      // Must return null, not Europe/London
+      expect(resolveProspectTimezone({ timezone: 'GMT+3' })).toBeNull()
+      expect(resolveProspectTimezone({ timezone: 'GMT+4' })).toBeNull()
+      expect(resolveProspectTimezone({ timezone: 'GMT+8' })).toBeNull()
     })
   })
 })
